@@ -71,6 +71,7 @@ open ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
 This project includes a GitHub Actions workflow at `.github/workflows/build-and-release.yml`.
 
 - Trigger: every push to `main`.
+- Security: runs `gitleaks` secret scan before build/release steps.
 - Build steps: `npm ci`, `npm run typecheck`, `npm run build`, and macOS tray app packaging.
 - Version source: `package.json` field `version`.
 - Tag: `v${version}` is created if it does not exist.
