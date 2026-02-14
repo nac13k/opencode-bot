@@ -51,6 +51,7 @@ This repository includes a macOS menu bar app at `macos/TrayBridgeApp`.
 - Menu bar icon shows running/stopped status.
 - Menu supports Start, Stop, Restart, and opening settings.
 - Settings window allows changing project path, command, env vars, and viewing logs.
+- Build process generates a custom app icon and embeds app description metadata.
 
 Run locally:
 
@@ -64,6 +65,22 @@ Build a double-clickable `.app` bundle:
 ```bash
 ./macos/TrayBridgeApp/scripts/build-app.sh
 open ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
+```
+
+### macOS signing and startup errors
+
+If macOS blocks startup because of signature/trust:
+
+```bash
+xattr -dr com.apple.quarantine ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
+codesign --force --deep --sign - ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
+open ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
+```
+
+For distribution with a real Apple certificate:
+
+```bash
+APPLE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./macos/TrayBridgeApp/scripts/build-app.sh
 ```
 
 ## CI/CD on `main`

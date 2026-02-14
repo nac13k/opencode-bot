@@ -9,6 +9,9 @@ struct SettingsView: View {
       Text("OpenCode Telegram Bridge")
         .font(.title2)
         .bold()
+      Text("Menu bar controller to start, stop, and monitor the Telegram bridge service.")
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
 
       GroupBox("Configuration") {
         VStack(alignment: .leading, spacing: 10) {

@@ -10,7 +10,7 @@ struct TrayBridgeApp: App {
   }
 
   var body: some Scene {
-    MenuBarExtra("OpenCode Bridge", systemImage: serviceManager.isRunning ? "bolt.circle.fill" : "bolt.circle") {
+    MenuBarExtra("Bridge", systemImage: serviceManager.isRunning ? "bolt.shield.fill" : "bolt.shield") {
       TrayMenuView(serviceManager: serviceManager)
     }
 
