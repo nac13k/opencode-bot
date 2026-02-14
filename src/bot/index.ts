@@ -10,6 +10,28 @@ export const createTelegramBot = (token: string, services: BotServices): Bot<Bot
   bot.use(attachServices(services));
   registerCommands(bot);
 
+  const startTypingStatus = (ctx: BotContext): (() => void) => {
+    let stopped = false;
+    const sendTyping = async () => {
+      if (stopped) return;
+      try {
+        await ctx.replyWithChatAction("typing");
+      } catch {
+        return;
+      }
+    };
+
+    void sendTyping();
+    const interval = setInterval(() => {
+      void sendTyping();
+    }, 4000);
+
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+  };
+
   bot.on("message:text", async (ctx) => {
     const from = ctx.from;
     const chat = ctx.chat;
@@ -38,13 +60,14 @@ export const createTelegramBot = (token: string, services: BotServices): Bot<Bot
     if (!prompt || prompt.startsWith("/")) return;
 
     const queueKey = `${chat.id}:${from.id}`;
-    await ctx.reply("Procesando en OpenCode...");
     logger.info("Queueing OpenCode prompt", {
       queueKey,
       chatId: chat.id,
       userId: from.id,
       promptPreview: prompt.slice(0, 120),
     });
+
+    const stopTypingStatus = startTypingStatus(ctx);
 
     await ctx.services.queue.run(queueKey, async () => {
       try {
@@ -93,6 +116,8 @@ export const createTelegramBot = (token: string, services: BotServices): Bot<Bot
           message,
         });
         await ctx.reply(`Error al ejecutar OpenCode: ${message}`);
+      } finally {
+        stopTypingStatus();
       }
     });
   });

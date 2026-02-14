@@ -43,3 +43,37 @@ npm run dev
 - Auth is strictly by numeric `telegramUserId`.
 - Username resolution is convenience-only and never used as auth source.
 - Installer writes plugin files to `~/.config/opencode/plugin/telegram-relay/`.
+
+## macOS Tray App
+
+This repository includes a macOS menu bar app at `macos/TrayBridgeApp`.
+
+- Menu bar icon shows running/stopped status.
+- Menu supports Start, Stop, Restart, and opening settings.
+- Settings window allows changing project path, command, env vars, and viewing logs.
+
+Run locally:
+
+```bash
+cd macos/TrayBridgeApp
+swift run TrayBridgeApp
+```
+
+Build a double-clickable `.app` bundle:
+
+```bash
+./macos/TrayBridgeApp/scripts/build-app.sh
+open ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
+```
+
+## CI/CD on `main`
+
+This project includes a GitHub Actions workflow at `.github/workflows/build-and-release.yml`.
+
+- Trigger: every push to `main`.
+- Build steps: `npm ci`, `npm run typecheck`, `npm run build`, and macOS tray app packaging.
+- Version source: `package.json` field `version`.
+- Tag: `v${version}` is created if it does not exist.
+- Publish: a GitHub Release is created/updated with build artifacts.
+
+If you want a new tag/release version, update `version` in `package.json`.

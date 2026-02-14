@@ -1,5 +1,13 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
 data/
 *.log
+.agents/
+.claude/
+macos/TrayBridgeApp/.build/
+macos/TrayBridgeApp/dist/
+release-artifacts/
+.DS_Store
