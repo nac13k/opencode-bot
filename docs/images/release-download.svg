@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-label="Download release from GitHub">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#1b2b4a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="700" fill="url(#bg)"/>
+  <rect x="70" y="70" width="1060" height="560" rx="18" fill="#f6f8fa"/>
+  <rect x="70" y="70" width="1060" height="56" rx="18" fill="#e6ebf1"/>
+  <circle cx="98" cy="98" r="8" fill="#ff5f57"/>
+  <circle cx="124" cy="98" r="8" fill="#febc2e"/>
+  <circle cx="150" cy="98" r="8" fill="#28c840"/>
+  <text x="190" y="104" font-family="SF Pro Display, Arial" font-size="24" fill="#1f2937">github.com/nac13k/opencode-bot/releases</text>
+  <text x="120" y="190" font-family="SF Pro Display, Arial" font-size="40" font-weight="700" fill="#111827">Release v0.1.0</text>
+  <rect x="120" y="235" width="960" height="88" rx="12" fill="#ffffff" stroke="#d1d9e0"/>
+  <text x="150" y="289" font-family="SF Mono, Menlo, monospace" font-size="30" fill="#111827">TrayBridgeApp-0.1.0.app.zip</text>
+  <rect x="870" y="250" width="185" height="58" rx="10" fill="#0969da"/>
+  <text x="905" y="288" font-family="SF Pro Display, Arial" font-size="26" fill="#ffffff">Download</text>
+  <text x="120" y="390" font-family="SF Pro Display, Arial" font-size="32" fill="#1f2937">1) Open Releases page</text>
+  <text x="120" y="438" font-family="SF Pro Display, Arial" font-size="32" fill="#1f2937">2) Download the latest .app.zip</text>
+  <text x="120" y="486" font-family="SF Pro Display, Arial" font-size="32" fill="#1f2937">3) Continue with install steps</text>
+</svg>

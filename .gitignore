@@ -11,3 +11,4 @@ macos/TrayBridgeApp/.build/
 macos/TrayBridgeApp/dist/
 release-artifacts/
 .DS_Store
+IMPLEMENTATION_PLAN.md

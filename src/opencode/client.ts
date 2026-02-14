@@ -17,6 +17,14 @@ export interface OpenCodeSessionSummary {
   updated?: string;
 }
 
+interface ExecResult {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+}
+
 export class OpenCodeClient {
   constructor(private readonly options: OpenCodeClientOptions) {}
 
@@ -41,11 +49,17 @@ export class OpenCodeClient {
     const first = await runOnce(sessionId);
     logger.debug("OpenCode first attempt completed", {
       code: first.code,
+      signal: first.signal,
+      timedOut: first.timedOut,
       stdoutLength: first.stdout.length,
       stderrLength: first.stderr.length,
       stderrPreview: first.stderr.slice(0, 240),
       usedSessionId: sessionId ?? null,
     });
+
+    if (first.timedOut) {
+      throw new Error(`OpenCode timeout after ${this.options.timeoutMs}ms`);
+    }
     const firstLooksLikeInvalidSession = typeof sessionId === "string" && isInvalidSessionError(first.stderr);
 
     if (first.code === 0 && !firstLooksLikeInvalidSession) {
@@ -59,32 +73,40 @@ export class OpenCodeClient {
       const retry = await runOnce();
       logger.debug("OpenCode retry completed", {
         code: retry.code,
+        signal: retry.signal,
+        timedOut: retry.timedOut,
         stdoutLength: retry.stdout.length,
         stderrLength: retry.stderr.length,
       });
+      if (retry.timedOut) {
+        throw new Error(`OpenCode timeout after ${this.options.timeoutMs}ms`);
+      }
       if (retry.code === 0) {
         return this.parseJsonStream(retry.stdout);
       }
-      throw new Error(`OpenCode failed (${retry.code}): ${retry.stderr || "no stderr"}`);
+      throw new Error(this.formatExecError(retry));
     }
 
-    throw new Error(`OpenCode failed (${first.code}): ${first.stderr || "no stderr"}`);
+    throw new Error(this.formatExecError(first));
   }
 
   async checkHealth(): Promise<void> {
-    const { code } = await this.exec(this.options.command, ["--version"], 5000);
-    if (code !== 0) {
+    const result = await this.exec(this.options.command, ["--version"], 5000);
+    if (result.code !== 0) {
       throw new Error("OpenCode command is not available");
     }
   }
 
   async listSessions(limit = 5): Promise<OpenCodeSessionSummary[]> {
-    const { code, stdout, stderr } = await this.exec(this.options.command, ["session", "list"], this.options.timeoutMs);
-    if (code !== 0) {
-      throw new Error(`OpenCode session list failed (${code}): ${stderr || "no stderr"}`);
+    const result = await this.exec(this.options.command, ["session", "list"], this.options.timeoutMs);
+    if (result.timedOut) {
+      throw new Error(`OpenCode session list timeout after ${this.options.timeoutMs}ms`);
+    }
+    if (result.code !== 0) {
+      throw new Error(this.formatExecError(result, "OpenCode session list failed"));
     }
 
-    const sessions = stdout
+    const sessions = result.stdout
       .split("\n")
       .map((line) => line.trimEnd())
       .filter((line) => line.startsWith("ses_"))
@@ -109,13 +131,21 @@ export class OpenCodeClient {
     command: string,
     args: string[],
     timeoutMs: number,
-  ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  ): Promise<ExecResult> {
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
+      let timedOut = false;
+
       const timer = setTimeout(() => {
+        timedOut = true;
         child.kill("SIGTERM");
+        setTimeout(() => {
+          if (!child.killed) {
+            child.kill("SIGKILL");
+          }
+        }, 2000);
       }, timeoutMs);
 
       child.stdout.on("data", (chunk) => {
@@ -128,11 +158,17 @@ export class OpenCodeClient {
         clearTimeout(timer);
         reject(error);
       });
-      child.on("close", (code) => {
+      child.on("close", (code, signal) => {
         clearTimeout(timer);
-        resolve({ code, stdout, stderr });
+        resolve({ code, signal, stdout, stderr, timedOut });
       });
     });
+  }
+
+  private formatExecError(result: ExecResult, prefix = "OpenCode failed"): string {
+    const exitPart = result.code === null ? `signal=${result.signal ?? "unknown"}` : `code=${result.code}`;
+    const details = result.stderr.trim() || (result.signal ? `terminated by ${result.signal}` : "no stderr");
+    return `${prefix} (${exitPart}): ${details}`;
   }
 
   private parseJsonStream(output: string): OpenCodeRunResult {

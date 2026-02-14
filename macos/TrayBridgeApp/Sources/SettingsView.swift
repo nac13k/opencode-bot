@@ -16,29 +16,57 @@ struct SettingsView: View {
       GroupBox("Configuration") {
         VStack(alignment: .leading, spacing: 10) {
           HStack {
-            Text("Project path")
+            Text("BOT_TOKEN")
               .frame(width: 110, alignment: .leading)
-            TextField("/path/to/project", text: $serviceManager.projectPath)
-            Button("Browse") {
-              selectProjectPath()
-            }
+            SecureField("Telegram bot token", text: $serviceManager.botToken)
           }
 
           HStack {
-            Text("Start command")
+            Text("ADMIN_USER_IDS")
               .frame(width: 110, alignment: .leading)
-            TextField("npm run dev", text: $serviceManager.startCommand)
+            TextField("123456,987654", text: $serviceManager.adminUserIds)
           }
 
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Extra env (KEY=VALUE per line)")
-            TextEditor(text: $serviceManager.extraEnv)
-              .font(.system(.body, design: .monospaced))
-              .frame(height: 90)
-              .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                  .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-              )
+          HStack {
+            Text("Transport")
+              .frame(width: 110, alignment: .leading)
+            Picker("Transport", selection: $serviceManager.botTransport) {
+              Text("polling").tag("polling")
+              Text("webhook").tag("webhook")
+            }
+            .pickerStyle(.segmented)
+          }
+
+          HStack {
+            Text("DATA_DIR")
+              .frame(width: 110, alignment: .leading)
+            TextField("./data", text: $serviceManager.dataDir)
+          }
+
+          HStack {
+            Text("OPENCODE_COMMAND")
+              .frame(width: 110, alignment: .leading)
+            TextField("opencode", text: $serviceManager.opencodeCommand)
+          }
+
+          HStack {
+            Text("TIMEOUT_MS")
+              .frame(width: 110, alignment: .leading)
+            TextField("120000", value: $serviceManager.opencodeTimeoutMs, format: .number)
+          }
+
+          DisclosureGroup("Advanced", isExpanded: $serviceManager.showAdvanced) {
+            HStack {
+              Text("Project path")
+                .frame(width: 110, alignment: .leading)
+              TextField("/path/to/project", text: $serviceManager.projectPath)
+              Button("Browse") {
+                selectProjectPath()
+              }
+            }
+            Text("This path is only used to locate the repo where `npm run dev` is executed.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
           }
 
           HStack {
@@ -109,7 +137,7 @@ struct SettingsView: View {
     panel.canCreateDirectories = true
     panel.allowsMultipleSelection = false
     if panel.runModal() == .OK, let url = panel.url {
-      serviceManager.projectPath = url.path
+      serviceManager.updateProjectPath(url.path)
     }
   }
 }

@@ -15,7 +15,10 @@ let package = Package(
   targets: [
     .executableTarget(
       name: "TrayBridgeApp",
-      path: "Sources"
+      path: "Sources",
+      linkerSettings: [
+        .linkedLibrary("sqlite3"),
+      ]
     ),
   ]
 )

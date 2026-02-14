@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-label="Configure bot settings in app">
+  <rect width="1200" height="760" fill="#0b1020"/>
+  <rect x="80" y="70" width="1040" height="620" rx="18" fill="#f8fafc"/>
+  <text x="120" y="130" font-family="SF Pro Display, Arial" font-size="34" font-weight="700" fill="#0f172a">Bridge Settings</text>
+
+  <text x="120" y="190" font-family="SF Pro Display, Arial" font-size="24" fill="#334155">BOT_TOKEN</text>
+  <rect x="330" y="165" width="730" height="42" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="350" y="194" font-family="SF Mono, Menlo, monospace" font-size="20" fill="#64748b">123456:AA...telegram-token...</text>
+
+  <text x="120" y="255" font-family="SF Pro Display, Arial" font-size="24" fill="#334155">ADMIN_USER_IDS</text>
+  <rect x="330" y="230" width="730" height="42" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="350" y="259" font-family="SF Mono, Menlo, monospace" font-size="20" fill="#64748b">218365418,987654321</text>
+
+  <text x="120" y="320" font-family="SF Pro Display, Arial" font-size="24" fill="#334155">Transport</text>
+  <rect x="330" y="295" width="220" height="42" rx="8" fill="#0ea5e9"/>
+  <text x="392" y="324" font-family="SF Pro Display, Arial" font-size="22" fill="#ffffff">polling</text>
+
+  <text x="120" y="385" font-family="SF Pro Display, Arial" font-size="24" fill="#334155">OPENCODE_COMMAND</text>
+  <rect x="330" y="360" width="730" height="42" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="350" y="389" font-family="SF Mono, Menlo, monospace" font-size="20" fill="#64748b">opencode</text>
+
+  <text x="120" y="450" font-family="SF Pro Display, Arial" font-size="24" fill="#334155">OPENCODE_TIMEOUT_MS</text>
+  <rect x="330" y="425" width="260" height="42" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="350" y="454" font-family="SF Mono, Menlo, monospace" font-size="20" fill="#64748b">120000</text>
+
+  <rect x="120" y="525" width="150" height="48" rx="10" fill="#16a34a"/>
+  <text x="172" y="557" font-family="SF Pro Display, Arial" font-size="24" fill="#ffffff">Save</text>
+  <rect x="290" y="525" width="150" height="48" rx="10" fill="#2563eb"/>
+  <text x="338" y="557" font-family="SF Pro Display, Arial" font-size="24" fill="#ffffff">Start</text>
+
+  <text x="120" y="630" font-family="SF Pro Display, Arial" font-size="26" fill="#0f172a">Fill required fields, then click Save and Start.</text>
+</svg>

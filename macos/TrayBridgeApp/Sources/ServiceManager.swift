@@ -1,35 +1,67 @@
 import Foundation
 
+enum BotTransport: String, CaseIterable, Identifiable {
+  case polling
+  case webhook
+
+  var id: String { rawValue }
+}
+
 final class ServiceManager: ObservableObject {
   @Published var isRunning = false
   @Published var statusText = "Ready"
   @Published var logs = ""
 
+  @Published var botToken = ""
+  @Published var adminUserIds = ""
+  @Published var botTransport: BotTransport = .polling
+  @Published var dataDir = "./data"
+  @Published var opencodeCommand = "opencode"
+  @Published var opencodeTimeoutMs = 120000
+
   @Published var projectPath: String
-  @Published var startCommand: String
-  @Published var extraEnv: String
+  @Published var showAdvanced = false
 
   private var process: Process?
-  private let storage = UserDefaults.standard
-
-  private enum Keys {
-    static let projectPath = "tray.projectPath"
-    static let startCommand = "tray.startCommand"
-    static let extraEnv = "tray.extraEnv"
-  }
+  private var store: SQLiteConfigStore? = nil
 
   init() {
-    let defaultPath = ("~/Documents/Hanamilabs/freelance/opencode-bot" as NSString).expandingTildeInPath
-    projectPath = storage.string(forKey: Keys.projectPath) ?? defaultPath
-    startCommand = storage.string(forKey: Keys.startCommand) ?? "npm run dev"
-    extraEnv = storage.string(forKey: Keys.extraEnv) ?? "NODE_ENV=development\nLOG_LEVEL=debug"
+    let root = ServiceManager.detectProjectRoot()
+    projectPath = root
+
+    var loadedStore: SQLiteConfigStore?
+    do {
+      let candidate = try SQLiteConfigStore()
+      loadedStore = candidate
+      let values = try candidate.loadSettings()
+      botToken = values["BOT_TOKEN"] ?? ""
+      adminUserIds = values["ADMIN_USER_IDS"] ?? ""
+      botTransport = BotTransport(rawValue: values["BOT_TRANSPORT"] ?? "polling") ?? .polling
+      dataDir = values["DATA_DIR"] ?? "./data"
+      opencodeCommand = values["OPENCODE_COMMAND"] ?? "opencode"
+      opencodeTimeoutMs = Int(values["OPENCODE_TIMEOUT_MS"] ?? "120000") ?? 120000
+      projectPath = values["PROJECT_PATH"] ?? projectPath
+    } catch {
+      statusText = "SQLite config unavailable"
+      appendLog("[error] Failed to load SQLite config: \(error.localizedDescription)")
+    }
+    store = loadedStore
   }
 
   func saveConfig() {
-    storage.set(projectPath, forKey: Keys.projectPath)
-    storage.set(startCommand, forKey: Keys.startCommand)
-    storage.set(extraEnv, forKey: Keys.extraEnv)
-    statusText = "Configuration saved"
+    guard let store else {
+      statusText = "SQLite config unavailable"
+      appendLog("[error] Save failed: SQLite store not ready")
+      return
+    }
+    do {
+      try store.saveSettings(currentConfigValues())
+      statusText = "Configuration saved"
+      appendLog("[info] Saved configuration to SQLite")
+    } catch {
+      statusText = "Failed to save configuration"
+      appendLog("[error] Save failed: \(error.localizedDescription)")
+    }
   }
 
   func startService() {
@@ -46,17 +78,32 @@ final class ServiceManager: ObservableObject {
       return
     }
 
+    if botToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      statusText = "BOT_TOKEN is required"
+      appendLog("[error] BOT_TOKEN is required")
+      return
+    }
+
+    if adminUserIds.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      statusText = "ADMIN_USER_IDS is required"
+      appendLog("[error] ADMIN_USER_IDS is required")
+      return
+    }
+
     saveConfig()
 
     let proc = Process()
     proc.currentDirectoryURL = URL(fileURLWithPath: normalizedPath)
     proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
-    proc.arguments = ["-lc", "exec \(startCommand)"]
+    proc.arguments = ["-lc", "exec npm run dev"]
 
     var env = ProcessInfo.processInfo.environment
-    parseExtraEnv().forEach { key, value in
-      env[key] = value
-    }
+    env["BOT_TOKEN"] = botToken
+    env["ADMIN_USER_IDS"] = adminUserIds
+    env["BOT_TRANSPORT"] = botTransport.rawValue
+    env["DATA_DIR"] = dataDir
+    env["OPENCODE_COMMAND"] = opencodeCommand
+    env["OPENCODE_TIMEOUT_MS"] = String(opencodeTimeoutMs)
     proc.environment = env
 
     let outputPipe = Pipe()
@@ -121,6 +168,22 @@ final class ServiceManager: ObservableObject {
     logs = ""
   }
 
+  func updateProjectPath(_ path: String) {
+    projectPath = path
+  }
+
+  private func currentConfigValues() -> [String: String] {
+    [
+      "BOT_TOKEN": botToken,
+      "ADMIN_USER_IDS": adminUserIds,
+      "BOT_TRANSPORT": botTransport.rawValue,
+      "DATA_DIR": dataDir,
+      "OPENCODE_COMMAND": opencodeCommand,
+      "OPENCODE_TIMEOUT_MS": String(opencodeTimeoutMs),
+      "PROJECT_PATH": projectPath,
+    ]
+  }
+
   private func appendLog(_ line: String) {
     guard !line.isEmpty else { return }
     let timestamp = ISO8601DateFormatter().string(from: Date())
@@ -130,19 +193,12 @@ final class ServiceManager: ObservableObject {
     }
   }
 
-  private func parseExtraEnv() -> [String: String] {
-    let lines = extraEnv
-      .split(separator: "\n")
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-
-    var result: [String: String] = [:]
-    for line in lines {
-      let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
-      if parts.count == 2 {
-        result[parts[0]] = parts[1]
-      }
+  private static func detectProjectRoot() -> String {
+    let cwd = FileManager.default.currentDirectoryPath
+    let packageJSON = URL(fileURLWithPath: cwd).appendingPathComponent("package.json").path
+    if FileManager.default.fileExists(atPath: packageJSON) {
+      return cwd
     }
-    return result
+    return ("~/Documents/Hanamilabs/freelance/opencode-bot" as NSString).expandingTildeInPath
   }
 }

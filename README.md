@@ -2,7 +2,7 @@
 
 Telegram bot that gates access by `telegramUserId`, forwards prompts to OpenCode, and relays final answers through a global OpenCode plugin.
 
-## Quickstart
+## Installation
 
 1. Install dependencies:
 
@@ -10,16 +10,55 @@ Telegram bot that gates access by `telegramUserId`, forwards prompts to OpenCode
 npm install
 ```
 
-2. Run interactive setup:
+2. Run typecheck/build once:
+
+```bash
+npm run typecheck
+npm run build
+```
+
+## Configuration
+
+Choose one setup mode.
+
+### Option A: CLI installer (recommended)
 
 ```bash
 npm run setup
 ```
 
-3. Start bot:
+The installer validates Telegram/OpenCode access and writes:
+
+- `.env` in project root
+- JSON data files under `DATA_DIR` (default `./data`)
+- global plugin files in `~/.config/opencode/plugin/telegram-relay/`
+
+### Option B: Manual `.env`
+
+Create `.env` with:
+
+```env
+BOT_TOKEN=<telegram-bot-token>
+ADMIN_USER_IDS=<comma-separated-user-ids>
+BOT_TRANSPORT=polling
+DATA_DIR=./data
+OPENCODE_COMMAND=opencode
+OPENCODE_TIMEOUT_MS=120000
+```
+
+## Run
+
+Start the bot:
 
 ```bash
 npm run dev
+```
+
+Or production mode:
+
+```bash
+npm run build
+npm start
 ```
 
 ## Admin Commands
@@ -50,7 +89,8 @@ This repository includes a macOS menu bar app at `macos/TrayBridgeApp`.
 
 - Menu bar icon shows running/stopped status.
 - Menu supports Start, Stop, Restart, and opening settings.
-- Settings window allows changing project path, command, env vars, and viewing logs.
+- Settings window manages `BOT_TOKEN`, `ADMIN_USER_IDS`, transport, OpenCode settings, and logs.
+- Advanced section keeps project path only for where `.env` is written and `npm run dev` is launched.
 - Build process generates a custom app icon and embeds app description metadata.
 
 Run locally:
@@ -66,6 +106,39 @@ Build a double-clickable `.app` bundle:
 ./macos/TrayBridgeApp/scripts/build-app.sh
 open ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
 ```
+
+### Download and install from GitHub Releases
+
+1. Open Releases page:
+
+```text
+https://github.com/nac13k/opencode-bot/releases
+```
+
+![Release download screen](docs/images/release-download.svg)
+
+2. Download the latest file:
+
+- `TrayBridgeApp-<version>.app.zip`
+
+3. Unzip and move `TrayBridgeApp.app` to `Applications`.
+
+![Install app in Applications](docs/images/app-install.svg)
+
+4. First launch:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/TrayBridgeApp.app
+open /Applications/TrayBridgeApp.app
+```
+
+5. In app settings, configure:
+
+- `BOT_TOKEN`
+- `ADMIN_USER_IDS`
+- optional OpenCode fields (`OPENCODE_COMMAND`, timeout, transport)
+
+![App configuration fields](docs/images/app-config.svg)
 
 ### macOS signing and startup errors
 
