@@ -18,17 +18,12 @@ final class ServiceManager: ObservableObject {
   @Published var dataDir = "./data"
   @Published var opencodeCommand = "opencode"
   @Published var opencodeTimeoutMs = 120000
-
-  @Published var projectPath: String
-  @Published var showAdvanced = false
+  @Published var usingBundledServer = false
 
   private var process: Process?
   private var store: SQLiteConfigStore? = nil
 
   init() {
-    let root = ServiceManager.detectProjectRoot()
-    projectPath = root
-
     var loadedStore: SQLiteConfigStore?
     do {
       let candidate = try SQLiteConfigStore()
@@ -40,7 +35,6 @@ final class ServiceManager: ObservableObject {
       dataDir = values["DATA_DIR"] ?? "./data"
       opencodeCommand = values["OPENCODE_COMMAND"] ?? "opencode"
       opencodeTimeoutMs = Int(values["OPENCODE_TIMEOUT_MS"] ?? "120000") ?? 120000
-      projectPath = values["PROJECT_PATH"] ?? projectPath
     } catch {
       statusText = "SQLite config unavailable"
       appendLog("[error] Failed to load SQLite config: \(error.localizedDescription)")
@@ -70,11 +64,19 @@ final class ServiceManager: ObservableObject {
       return
     }
 
-    let normalizedPath = (projectPath as NSString).expandingTildeInPath
+    guard let launch = resolveLaunchTarget() else {
+      usingBundledServer = false
+      statusText = "Bundled server not found"
+      appendLog("[error] App bundle does not include embedded server payload")
+      return
+    }
+    usingBundledServer = true
+
+    let runPath = launch.runDirectory.path
     var isDirectory: ObjCBool = false
-    if !FileManager.default.fileExists(atPath: normalizedPath, isDirectory: &isDirectory) || !isDirectory.boolValue {
-      statusText = "Invalid project path"
-      appendLog("[error] Invalid project path: \(normalizedPath)")
+    if !FileManager.default.fileExists(atPath: runPath, isDirectory: &isDirectory) || !isDirectory.boolValue {
+      statusText = "Invalid run path"
+      appendLog("[error] Invalid run path: \(runPath)")
       return
     }
 
@@ -93,9 +95,9 @@ final class ServiceManager: ObservableObject {
     saveConfig()
 
     let proc = Process()
-    proc.currentDirectoryURL = URL(fileURLWithPath: normalizedPath)
+    proc.currentDirectoryURL = launch.runDirectory
     proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
-    proc.arguments = ["-lc", "exec npm run dev"]
+    proc.arguments = ["-lc", launch.command]
 
     var env = ProcessInfo.processInfo.environment
     env["BOT_TOKEN"] = botToken
@@ -132,7 +134,7 @@ final class ServiceManager: ObservableObject {
       process = proc
       isRunning = true
       statusText = "Service running"
-      appendLog("[info] Started service in \(normalizedPath)")
+      appendLog("[info] Started service mode=bundled path=\(runPath)")
     } catch {
       statusText = "Failed to start service"
       appendLog("[error] Failed to start: \(error.localizedDescription)")
@@ -168,10 +170,6 @@ final class ServiceManager: ObservableObject {
     logs = ""
   }
 
-  func updateProjectPath(_ path: String) {
-    projectPath = path
-  }
-
   private func currentConfigValues() -> [String: String] {
     [
       "BOT_TOKEN": botToken,
@@ -180,8 +178,43 @@ final class ServiceManager: ObservableObject {
       "DATA_DIR": dataDir,
       "OPENCODE_COMMAND": opencodeCommand,
       "OPENCODE_TIMEOUT_MS": String(opencodeTimeoutMs),
-      "PROJECT_PATH": projectPath,
     ]
+  }
+
+  private func resolveLaunchTarget() -> (runDirectory: URL, command: String)? {
+    guard let bundled = resolveBundledServerDirectory() else {
+      return nil
+    }
+
+    let nodeCommand: String
+    if let bundledNode = resolveBundledNodeBinary() {
+      nodeCommand = "\"\(bundledNode.path)\""
+    } else {
+      nodeCommand = "node"
+    }
+    return (
+      runDirectory: bundled,
+      command: "exec \(nodeCommand) dist/main.js"
+    )
+  }
+
+  private func resolveBundledServerDirectory() -> URL? {
+    guard let resources = Bundle.main.resourceURL else { return nil }
+    let server = resources.appendingPathComponent("server", isDirectory: true)
+    let mainJs = server.appendingPathComponent("dist/main.js")
+    if FileManager.default.fileExists(atPath: mainJs.path) {
+      return server
+    }
+    return nil
+  }
+
+  private func resolveBundledNodeBinary() -> URL? {
+    guard let resources = Bundle.main.resourceURL else { return nil }
+    let bundledNode = resources.appendingPathComponent("node/bin/node")
+    if FileManager.default.fileExists(atPath: bundledNode.path) {
+      return bundledNode
+    }
+    return nil
   }
 
   private func appendLog(_ line: String) {
@@ -191,14 +224,5 @@ final class ServiceManager: ObservableObject {
     if logs.count > 80_000 {
       logs = String(logs.suffix(80_000))
     }
-  }
-
-  private static func detectProjectRoot() -> String {
-    let cwd = FileManager.default.currentDirectoryPath
-    let packageJSON = URL(fileURLWithPath: cwd).appendingPathComponent("package.json").path
-    if FileManager.default.fileExists(atPath: packageJSON) {
-      return cwd
-    }
-    return ("~/Documents/Hanamilabs/freelance/opencode-bot" as NSString).expandingTildeInPath
   }
 }

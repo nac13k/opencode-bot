@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -31,8 +30,8 @@ struct SettingsView: View {
             Text("Transport")
               .frame(width: 110, alignment: .leading)
             Picker("Transport", selection: $serviceManager.botTransport) {
-              Text("polling").tag("polling")
-              Text("webhook").tag("webhook")
+              Text("polling").tag(BotTransport.polling)
+              Text("webhook").tag(BotTransport.webhook)
             }
             .pickerStyle(.segmented)
           }
@@ -53,20 +52,6 @@ struct SettingsView: View {
             Text("TIMEOUT_MS")
               .frame(width: 110, alignment: .leading)
             TextField("120000", value: $serviceManager.opencodeTimeoutMs, format: .number)
-          }
-
-          DisclosureGroup("Advanced", isExpanded: $serviceManager.showAdvanced) {
-            HStack {
-              Text("Project path")
-                .frame(width: 110, alignment: .leading)
-              TextField("/path/to/project", text: $serviceManager.projectPath)
-              Button("Browse") {
-                selectProjectPath()
-              }
-            }
-            Text("This path is only used to locate the repo where `npm run dev` is executed.")
-              .font(.caption)
-              .foregroundStyle(.secondary)
           }
 
           HStack {
@@ -98,6 +83,12 @@ struct SettingsView: View {
         HStack {
           Label(serviceManager.isRunning ? "Running" : "Stopped", systemImage: serviceManager.isRunning ? "checkmark.circle.fill" : "xmark.circle")
             .foregroundStyle(serviceManager.isRunning ? .green : .red)
+          Text(serviceManager.usingBundledServer ? "Bundled" : "Unavailable")
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(serviceManager.usingBundledServer ? Color.blue.opacity(0.18) : Color.red.opacity(0.18))
+            .clipShape(Capsule())
           Spacer()
           Text(serviceManager.statusText)
             .font(.caption)
@@ -130,14 +121,4 @@ struct SettingsView: View {
     .padding(16)
   }
 
-  private func selectProjectPath() {
-    let panel = NSOpenPanel()
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.canCreateDirectories = true
-    panel.allowsMultipleSelection = false
-    if panel.runModal() == .OK, let url = panel.url {
-      serviceManager.updateProjectPath(url.path)
-    }
-  }
 }

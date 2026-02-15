@@ -90,7 +90,9 @@ This repository includes a macOS menu bar app at `macos/TrayBridgeApp`.
 - Menu bar icon shows running/stopped status.
 - Menu supports Start, Stop, Restart, and opening settings.
 - Settings window manages `BOT_TOKEN`, `ADMIN_USER_IDS`, transport, OpenCode settings, and logs.
-- Advanced section keeps project path only for where `.env` is written and `npm run dev` is launched.
+- Settings are stored in a local SQLite database inside the app support directory.
+- Release builds bundle the server payload (and Node runtime) inside the app for easier install.
+- App runs only with bundled server payload (no external project-path fallback).
 - Build process generates a custom app icon and embeds app description metadata.
 
 Run locally:
@@ -119,6 +121,7 @@ https://github.com/nac13k/opencode-bot/releases
 
 2. Download the latest file:
 
+- `TrayBridgeApp-<version>.dmg` (recommended, self-contained)
 - `TrayBridgeApp-<version>.app.zip`
 
 3. Unzip and move `TrayBridgeApp.app` to `Applications`.
@@ -137,6 +140,8 @@ open /Applications/TrayBridgeApp.app
 - `BOT_TOKEN`
 - `ADMIN_USER_IDS`
 - optional OpenCode fields (`OPENCODE_COMMAND`, timeout, transport)
+
+The app persists this configuration in SQLite and launches the bundled bridge service.
 
 ![App configuration fields](docs/images/app-config.svg)
 

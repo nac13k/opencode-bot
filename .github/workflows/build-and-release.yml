@@ -38,6 +38,19 @@ jobs:
           npm run build
           npm test
 
+      - name: Prepare embedded server payload
+        run: |
+          rm -rf macos/TrayBridgeApp/embedded-server macos/TrayBridgeApp/embedded-node
+          mkdir -p macos/TrayBridgeApp/embedded-server
+          cp -R dist macos/TrayBridgeApp/embedded-server/dist
+          cp package.json package-lock.json macos/TrayBridgeApp/embedded-server/
+          npm ci --omit=dev --prefix macos/TrayBridgeApp/embedded-server
+
+          NODE_BIN="$(which node)"
+          NODE_ROOT="$(cd "$(dirname "$NODE_BIN")/.." && pwd)"
+          mkdir -p macos/TrayBridgeApp/embedded-node
+          cp -R "$NODE_ROOT"/* macos/TrayBridgeApp/embedded-node/
+
       - name: Build macOS tray app bundle
         run: ./macos/TrayBridgeApp/scripts/build-app.sh
 
@@ -66,6 +79,16 @@ jobs:
           mkdir -p release-artifacts
           tar -czf release-artifacts/node-dist-${{ steps.version.outputs.version }}.tar.gz dist package.json package-lock.json README.md
           ditto -c -k --sequesterRsrc --keepParent macos/TrayBridgeApp/dist/TrayBridgeApp.app release-artifacts/TrayBridgeApp-${{ steps.version.outputs.version }}.app.zip
+
+          mkdir -p dmg-staging
+          cp -R macos/TrayBridgeApp/dist/TrayBridgeApp.app dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create \
+            -volname "TrayBridgeApp-${{ steps.version.outputs.version }}" \
+            -srcfolder dmg-staging \
+            -ov \
+            -format UDZO \
+            "release-artifacts/TrayBridgeApp-${{ steps.version.outputs.version }}.dmg"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

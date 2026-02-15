@@ -12,6 +12,8 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 PLIST_PATH="$CONTENTS_DIR/Info.plist"
 ICON_NAME="TrayBridge"
 ICON_ICNS_PATH="$RESOURCES_DIR/$ICON_NAME.icns"
+EMBEDDED_SERVER_SRC="$ROOT_DIR/embedded-server"
+EMBEDDED_NODE_SRC="$ROOT_DIR/embedded-node"
 
 generate_icon() {
   local temp_dir
@@ -84,6 +86,20 @@ sign_app_bundle() {
   codesign --force --deep --sign "$sign_identity" "$APP_DIR"
 }
 
+copy_embedded_runtime() {
+  if [ -d "$EMBEDDED_SERVER_SRC" ]; then
+    echo "Embedding server payload..."
+    rm -rf "$RESOURCES_DIR/server"
+    cp -R "$EMBEDDED_SERVER_SRC" "$RESOURCES_DIR/server"
+  fi
+
+  if [ -d "$EMBEDDED_NODE_SRC" ]; then
+    echo "Embedding node runtime..."
+    rm -rf "$RESOURCES_DIR/node"
+    cp -R "$EMBEDDED_NODE_SRC" "$RESOURCES_DIR/node"
+  fi
+}
+
 echo "Building Swift app..."
 swift build --package-path "$ROOT_DIR"
 
@@ -94,6 +110,7 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$BUILD_DIR/$APP_NAME" "$MACOS_DIR/$APP_NAME"
 chmod +x "$MACOS_DIR/$APP_NAME"
 generate_icon
+copy_embedded_runtime
 
 cat > "$PLIST_PATH" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
