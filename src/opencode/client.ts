@@ -4,6 +4,9 @@ import { logger } from "../logger.js";
 export interface OpenCodeClientOptions {
   command: string;
   timeoutMs: number;
+  serverUrl: string;
+  serverUsername: string;
+  serverPassword?: string;
 }
 
 export interface OpenCodeRunResult {
@@ -21,6 +24,30 @@ export interface OpenCodeModelInfo {
   id: string;
   name: string;
   favorite: boolean;
+}
+
+export interface OpenCodeSessionStatusReport {
+  sessionId: string;
+  model: string | null;
+  status: "idle" | "busy" | "retry" | "unknown";
+  statusMessage?: string;
+  tokensUsed?: number;
+  contextLimit?: number;
+  contextPercent?: number;
+  todos: {
+    total: number;
+    pending: number;
+    inProgress: number;
+    completed: number;
+    cancelled: number;
+  };
+  files: {
+    modified: number;
+    added: number;
+    deleted: number;
+    totalChanged: number;
+  };
+  lastUpdatedAt?: number;
 }
 
 export class OpenCodeExecutionError extends Error {
@@ -143,6 +170,20 @@ export class OpenCodeClient {
     return sessions.slice(0, Math.max(1, limit));
   }
 
+  async compactSession(sessionId: string): Promise<void> {
+    const result = await this.exec(
+      this.options.command,
+      ["session", "compact", sessionId],
+      this.options.timeoutMs,
+    );
+    if (result.timedOut) {
+      throw new Error(`OpenCode compact timeout after ${this.options.timeoutMs}ms`);
+    }
+    if (result.code !== 0) {
+      throw new OpenCodeExecutionError(this.formatExecError(result));
+    }
+  }
+
   async listFavoriteModels(): Promise<OpenCodeModelInfo[]> {
     const result = await this.exec(this.options.command, ["model", "list", "--json"], this.options.timeoutMs);
     if (result.timedOut) {
@@ -169,6 +210,42 @@ export class OpenCodeClient {
     } catch {
       return [];
     }
+  }
+
+  async getStatus(sessionId: string | null): Promise<OpenCodeSessionStatusReport> {
+    const safeSessionId = sessionId ?? "";
+    const [sessionStatus, sessionInfo, todos, files] = await Promise.all([
+      this.fetchJson<Record<string, { type: string; message?: string; attempt?: number }>>(
+        "/session/status",
+      ),
+      safeSessionId ? this.fetchJson<OpenCodeSessionInfo>(`/session/${safeSessionId}`) : null,
+      safeSessionId ? this.fetchJson<Array<OpenCodeTodo>>(`/session/${safeSessionId}/todo`) : [],
+      this.fetchJson<Array<OpenCodeFileStatus>>("/file/status"),
+    ]);
+
+    const statusEntry = safeSessionId ? sessionStatus?.[safeSessionId] : undefined;
+    const status = this.mapSessionStatus(statusEntry?.type);
+    const statusMessage = statusEntry?.message;
+    const model = this.getSessionModel(sessionInfo);
+    const contextLimit = this.getContextLimit(sessionInfo);
+    const tokensUsed = this.getTokensUsed(sessionInfo);
+    const contextPercent = this.getContextPercent(tokensUsed, contextLimit);
+
+    const todoSummary = this.summarizeTodos(todos);
+    const fileSummary = this.summarizeFiles(files);
+
+    return {
+      sessionId: safeSessionId || "",
+      model,
+      status,
+      statusMessage,
+      tokensUsed,
+      contextLimit,
+      contextPercent,
+      todos: todoSummary,
+      files: fileSummary,
+      lastUpdatedAt: sessionInfo?.time?.updated,
+    };
   }
 
   private exec(
@@ -267,4 +344,158 @@ export class OpenCodeClient {
     });
     return result;
   }
+
+  private async fetchJson<T>(path: string): Promise<T> {
+    const url = new URL(path, this.options.serverUrl);
+    const headers = new Headers({ Accept: "application/json" });
+    if (this.options.serverPassword) {
+      const auth = Buffer.from(
+        `${this.options.serverUsername}:${this.options.serverPassword}`,
+        "utf8",
+      ).toString("base64");
+      headers.set("Authorization", `Basic ${auth}`);
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
+    try {
+      const response = await fetch(url, { headers, signal: controller.signal });
+      if (!response.ok) {
+        throw new OpenCodeExecutionError(`OpenCode server error (${response.status})`);
+      }
+      return (await response.json()) as T;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new OpenCodeExecutionError(`OpenCode server unavailable: ${message}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private mapSessionStatus(value?: string): "idle" | "busy" | "retry" | "unknown" {
+    if (value === "idle" || value === "busy" || value === "retry") return value;
+    return "unknown";
+  }
+
+  private getSessionModel(info: OpenCodeSessionInfo | null): string | null {
+    if (!info?.messages?.length) return null;
+    const last = info.messages
+      .filter((message) => message.role === "assistant")
+      .at(-1) as OpenCodeAssistantMessage | undefined;
+    if (!last) return null;
+    return `${last.providerID}/${last.modelID}`;
+  }
+
+  private getContextLimit(info: OpenCodeSessionInfo | null): number | undefined {
+    return info?.model?.limit?.context;
+  }
+
+  private getTokensUsed(info: OpenCodeSessionInfo | null): number | undefined {
+    if (!info?.messages?.length) return undefined;
+    const last = info.messages
+      .filter((message) => message.role === "assistant")
+      .at(-1) as OpenCodeAssistantMessage | undefined;
+    if (!last?.tokens) return undefined;
+    const cache = last.tokens.cache?.read ?? 0;
+    return last.tokens.input + last.tokens.output + last.tokens.reasoning + cache;
+  }
+
+  private getContextPercent(tokensUsed?: number, limit?: number): number | undefined {
+    if (!tokensUsed || !limit) return undefined;
+    return Math.min(100, Math.round((tokensUsed / limit) * 100));
+  }
+
+  private summarizeTodos(todos: Array<OpenCodeTodo>): OpenCodeSessionStatusReport["todos"] {
+    const summary = {
+      total: todos.length,
+      pending: 0,
+      inProgress: 0,
+      completed: 0,
+      cancelled: 0,
+    };
+    for (const todo of todos) {
+      switch (todo.status) {
+        case "pending":
+          summary.pending += 1;
+          break;
+        case "in_progress":
+          summary.inProgress += 1;
+          break;
+        case "completed":
+          summary.completed += 1;
+          break;
+        case "cancelled":
+          summary.cancelled += 1;
+          break;
+        default:
+          summary.pending += 1;
+      }
+    }
+    return summary;
+  }
+
+  private summarizeFiles(files: Array<OpenCodeFileStatus>): OpenCodeSessionStatusReport["files"] {
+    const summary = {
+      modified: 0,
+      added: 0,
+      deleted: 0,
+      totalChanged: 0,
+    };
+    for (const file of files) {
+      switch (file.status) {
+        case "modified":
+          summary.modified += 1;
+          break;
+        case "added":
+          summary.added += 1;
+          break;
+        case "deleted":
+          summary.deleted += 1;
+          break;
+        default:
+          summary.modified += 1;
+      }
+      summary.totalChanged += 1;
+    }
+    return summary;
+  }
 }
+
+type OpenCodeTodo = {
+  status: "pending" | "in_progress" | "completed" | "cancelled" | string;
+};
+
+type OpenCodeFileStatus = {
+  status: "added" | "deleted" | "modified" | string;
+};
+
+type OpenCodeSessionInfo = {
+  id: string;
+  title?: string;
+  time?: { updated?: number };
+  messages?: Array<OpenCodeAssistantMessage | OpenCodeUserMessage>;
+  model?: {
+    limit?: {
+      context?: number;
+    };
+  };
+};
+
+type OpenCodeAssistantMessage = {
+  role: "assistant";
+  providerID: string;
+  modelID: string;
+  tokens: {
+    input: number;
+    output: number;
+    reasoning: number;
+    cache?: {
+      read?: number;
+      write?: number;
+    };
+  };
+};
+
+type OpenCodeUserMessage = {
+  role: "user";
+};

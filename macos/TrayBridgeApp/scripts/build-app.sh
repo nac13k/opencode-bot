@@ -14,7 +14,6 @@ PLIST_PATH="$CONTENTS_DIR/Info.plist"
 ICON_NAME="TrayBridge"
 ICON_ICNS_PATH="$RESOURCES_DIR/$ICON_NAME.icns"
 EMBEDDED_SERVER_SRC="$ROOT_DIR/embedded-server"
-EMBEDDED_NODE_SRC="$ROOT_DIR/embedded-node"
 
 generate_icon() {
   local temp_dir
@@ -96,13 +95,6 @@ copy_embedded_runtime() {
     echo "Embedded server payload missing. Run scripts/prepare-embedded-server.sh first."
   fi
 
-  if [ -d "$EMBEDDED_NODE_SRC" ]; then
-    echo "Embedding node runtime..."
-    rm -rf "$RESOURCES_DIR/node"
-    cp -R "$EMBEDDED_NODE_SRC" "$RESOURCES_DIR/node"
-  else
-    echo "Embedded node runtime missing. Run scripts/prepare-embedded-server.sh first."
-  fi
 }
 
 echo "Building Swift app..."

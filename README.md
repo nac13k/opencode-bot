@@ -40,10 +40,12 @@ Create `.env` with:
 ```env
 BOT_TOKEN=<telegram-bot-token>
 ADMIN_USER_IDS=<comma-separated-user-ids>
+ALLOWED_USER_IDS=<comma-separated-user-ids>
 BOT_TRANSPORT=polling
 DATA_DIR=./data
 OPENCODE_COMMAND=opencode
 OPENCODE_TIMEOUT_MS=120000
+NODE_BINARY=/opt/homebrew/bin/node
 ```
 
 ## Run
@@ -63,9 +65,6 @@ npm start
 
 ## Admin Commands
 
-- `/allow <userId>`
-- `/deny <userId>`
-- `/list`
 - `/status`
 - `/resolve @username` (best-effort helper only)
 
@@ -95,7 +94,7 @@ This repository includes a macOS menu bar app at `macos/TrayBridgeApp`.
 
 - Menu bar icon shows running/stopped status.
 - Menu supports Start, Stop, Restart, and opening settings.
-- Settings window manages `BOT_TOKEN`, `ADMIN_USER_IDS`, transport, OpenCode settings, and logs.
+- Settings window manages `BOT_TOKEN`, `ADMIN_USER_IDS`, `ALLOWED_USER_IDS`, transport, OpenCode settings, and logs.
 - Settings are stored in a local SQLite database inside the app support directory.
 - Release builds bundle the server payload (and Node runtime) inside the app for easier install.
 - App runs only with bundled server payload (no external project-path fallback).

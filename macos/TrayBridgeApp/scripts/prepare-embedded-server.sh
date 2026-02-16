@@ -6,7 +6,6 @@ APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 EMBEDDED_SERVER_DIR="$APP_ROOT/embedded-server"
-EMBEDDED_NODE_DIR="$APP_ROOT/embedded-node"
 
 NPM_BIN="$(command -v npm || true)"
 if [ -z "$NPM_BIN" ]; then
@@ -24,7 +23,7 @@ if [ ! -d "$REPO_ROOT/dist" ]; then
 fi
 
 echo "Preparing embedded server payload..."
-rm -rf "$EMBEDDED_SERVER_DIR" "$EMBEDDED_NODE_DIR"
+rm -rf "$EMBEDDED_SERVER_DIR"
 mkdir -p "$EMBEDDED_SERVER_DIR"
 cp -R "$REPO_ROOT/dist" "$EMBEDDED_SERVER_DIR/dist"
 cp "$REPO_ROOT/package.json" "$REPO_ROOT/package-lock.json" "$EMBEDDED_SERVER_DIR/"
@@ -33,12 +32,8 @@ cp "$REPO_ROOT/package.json" "$REPO_ROOT/package-lock.json" "$EMBEDDED_SERVER_DI
 
 NODE_BIN="$(command -v node || true)"
 if [ -z "$NODE_BIN" ]; then
-  echo "Node not found on PATH. Install Node to embed runtime."
+  echo "Node not found on PATH. Install Node to run the server."
   exit 1
 fi
-
-NODE_ROOT="$(cd "$(dirname "$NODE_BIN")/.." && pwd)"
-mkdir -p "$EMBEDDED_NODE_DIR"
-cp -R "$NODE_ROOT"/* "$EMBEDDED_NODE_DIR/"
 
 echo "Embedded server prepared."

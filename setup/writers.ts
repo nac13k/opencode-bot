@@ -11,6 +11,7 @@ export const writeEnvFile = async (answers: InstallerAnswers): Promise<void> => 
   const content = [
     `BOT_TOKEN=${answers.botToken}`,
     `ADMIN_USER_IDS=${answers.adminUserIds.join(",")}`,
+    `ALLOWED_USER_IDS=${answers.allowedUserIds.join(",")}`,
     `BOT_TRANSPORT=${answers.transport}`,
     `DATA_DIR=${answers.dataDir}`,
     `OPENCODE_COMMAND=${answers.opencodeCommand}`,
@@ -24,11 +25,18 @@ export const initializeDataFiles = async (answers: InstallerAnswers): Promise<vo
   const dataDir = path.resolve(answers.dataDir);
   await mkdir(dataDir, { recursive: true });
 
+  const allowedUsers = Array.from(
+    new Set([...
+      answers.allowedUserIds,
+      ...answers.adminUserIds,
+    ]),
+  );
+
   const payloads: Record<string, unknown> = {
-    [STORE_FILES.allowedUsers]: answers.adminUserIds.map((telegramUserId) => ({
+    [STORE_FILES.allowedUsers]: allowedUsers.map((telegramUserId) => ({
       telegramUserId,
-      alias: "admin",
-      addedBy: telegramUserId,
+      alias: answers.adminUserIds.includes(telegramUserId) ? "admin" : "allowed",
+      addedBy: answers.adminUserIds[0] ?? telegramUserId,
       createdAt: now(),
     })),
     [STORE_FILES.admins]: answers.adminUserIds.map((telegramUserId) => ({ telegramUserId, createdAt: now() })),

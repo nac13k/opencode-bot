@@ -1,13 +1,7 @@
 import { InlineKeyboard, type Bot } from "grammy";
 
+import { logger } from "../logger.js";
 import type { BotContext } from "./types.js";
-
-const parseUserId = (value: string | undefined): number | null => {
-  if (!value) return null;
-  const parsed = Number(value.trim());
-  if (!Number.isFinite(parsed)) return null;
-  return parsed;
-};
 
 const requireFrom = async (ctx: BotContext): Promise<number | null> => {
   const fromId = ctx.from?.id;
@@ -18,15 +12,6 @@ const requireFrom = async (ctx: BotContext): Promise<number | null> => {
   return fromId;
 };
 
-const requireAdmin = async (ctx: BotContext): Promise<number | null> => {
-  const fromId = await requireFrom(ctx);
-  if (!fromId) return null;
-  if (!(await ctx.services.authz.isAdmin(fromId))) {
-    await ctx.reply("Solo admins pueden usar este comando.");
-    return null;
-  }
-  return fromId;
-};
 
 const requireAllowed = async (ctx: BotContext): Promise<number | null> => {
   const fromId = await requireFrom(ctx);
@@ -71,6 +56,25 @@ const buildModelKeyboard = (models: Array<{ id: string; name: string }>): Inline
 };
 
 export const registerCommands = (bot: Bot<BotContext>): void => {
+  bot.command("compact", async (ctx) => {
+    const userId = await requireAllowed(ctx);
+    if (!userId) return;
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      await ctx.reply("No se pudo identificar el chat.");
+      return;
+    }
+
+    const sessionId = await ctx.services.sessions.getSession(chatId, userId);
+    if (!sessionId) {
+      await ctx.reply("No hay sesion activa para compactar.");
+      return;
+    }
+
+    await ctx.services.opencode.compactSession(sessionId);
+    await ctx.reply("Sesion compactada.");
+  });
+
   bot.command("start", async (ctx) => {
     const fromId = await requireFrom(ctx);
     if (!fromId) return;
@@ -83,58 +87,85 @@ export const registerCommands = (bot: Bot<BotContext>): void => {
     );
   });
 
-  bot.command("allow", async (ctx) => {
-    const adminId = await requireAdmin(ctx);
-    if (!adminId) return;
-    const arg = ctx.match?.trim();
-    const userId = parseUserId(arg);
-    if (!userId) {
-      await ctx.reply("Uso: /allow <userId>");
-      return;
-    }
-    await ctx.services.authz.addAllowedUser(userId, adminId);
-    await ctx.reply(`Usuario ${userId} autorizado.`);
-  });
-
-  bot.command("deny", async (ctx) => {
-    const adminId = await requireAdmin(ctx);
-    if (!adminId) return;
-    const arg = ctx.match?.trim();
-    const userId = parseUserId(arg);
-    if (!userId) {
-      await ctx.reply("Uso: /deny <userId>");
-      return;
-    }
-    await ctx.services.authz.removeAllowedUser(userId);
-    await ctx.reply(`Usuario ${userId} removido.`);
-  });
-
-  bot.command("list", async (ctx) => {
-    const adminId = await requireAdmin(ctx);
-    if (!adminId) return;
-    const [admins, allowed] = await Promise.all([
-      ctx.services.authz.listAdminUsers(),
-      ctx.services.authz.listAllowedUsers(),
-    ]);
-    await ctx.reply(`Admins: ${admins.join(", ") || "(vacío)"}\nAllowed: ${allowed.join(", ") || "(vacío)"}`);
-  });
-
   bot.command("status", async (ctx) => {
-    const adminId = await requireAdmin(ctx);
-    if (!adminId) return;
-    await ctx.reply("Bridge activo. Esperando mensajes.");
+    const userId = await requireAllowed(ctx);
+    if (!userId) return;
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      await ctx.reply("No se pudo identificar el chat.");
+      return;
+    }
+
+    const sessionId = await ctx.services.sessions.getSession(chatId, userId);
+    logger.info("Status command requested", { chatId, userId, sessionId });
+    try {
+      const report = await ctx.services.opencode.getStatus(sessionId);
+      logger.debug("Status report fetched", {
+        chatId,
+        userId,
+        sessionId,
+        status: report.status,
+        model: report.model ?? "n/d",
+      });
+      const statusLabel = (() => {
+        switch (report.status) {
+          case "busy":
+            return "⏳ Ocupado";
+          case "retry":
+            return "🔁 Reintentando";
+          case "idle":
+            return "✅ Idle";
+          default:
+            return "❔ Desconocido";
+        }
+      })();
+      const tokensLabel = report.tokensUsed
+        ? `${report.tokensUsed}${report.contextLimit ? ` / ${report.contextLimit}` : ""}`
+        : "n/d";
+      const contextLabel =
+        typeof report.contextPercent === "number" ? `${report.contextPercent}%` : "n/d";
+      const modelLabel = report.model ?? "n/d";
+      const filesLabel = `${report.files.totalChanged} (mod ${report.files.modified}, add ${report.files.added}, del ${report.files.deleted})`;
+      const todoLabel = `${report.todos.total} (pend ${report.todos.pending}, prog ${report.todos.inProgress}, comp ${report.todos.completed}, canc ${report.todos.cancelled})`;
+
+      const lines = [
+        "📊 Status OpenCode",
+        `• ${statusLabel}`,
+        `• 🔢 Tokens: ${tokensLabel}`,
+        `• 🧠 Contexto: ${contextLabel}`,
+        `• 🤖 Modelo: ${modelLabel}`,
+        `• 🧾 Todos: ${todoLabel}`,
+        `• 🧱 Docs: ${filesLabel}`,
+      ];
+
+      if (report.statusMessage) {
+        lines.push(`• 💬 Estado: ${report.statusMessage}`);
+      }
+      if (!sessionId) {
+        lines.push("• 🧩 Sesion: nueva (envia un mensaje para crearla)");
+      } else {
+        lines.push(`• 🧩 Sesion: ${sessionId}`);
+      }
+
+      await ctx.reply(lines.join("\n"));
+      logger.info("Status response sent", { chatId, userId, sessionId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Error desconocido";
+      logger.error("Status command failed", { chatId, userId, sessionId, message });
+      await ctx.reply(`No se pudo obtener status de OpenCode. ${message}`);
+    }
   });
 
   bot.command("resolve", async (ctx) => {
-    const adminId = await requireAdmin(ctx);
-    if (!adminId) return;
+    const userId = await requireAllowed(ctx);
+    if (!userId) return;
     const arg = ctx.match?.trim();
     if (!arg?.startsWith("@")) {
       await ctx.reply("Uso: /resolve @username");
       return;
     }
-    const userId = await ctx.services.resolver.resolve(arg);
-    await ctx.reply(userId ? `${arg} -> ${userId}` : `No fue posible resolver ${arg}`);
+    const resolvedUserId = await ctx.services.resolver.resolve(arg);
+    await ctx.reply(resolvedUserId ? `${arg} -> ${resolvedUserId}` : `No fue posible resolver ${arg}`);
   });
 
   bot.command("session", async (ctx) => {
@@ -326,3 +357,13 @@ export const registerCommands = (bot: Bot<BotContext>): void => {
     await ctx.reply("Modelo reiniciado. Se usara el default de OpenCode.");
   });
 };
+
+export const botCommandList = [
+  { command: "start", description: "Inicia el bot" },
+  { command: "status", description: "Estado del bridge" },
+  { command: "session", description: "Gestiona sesion" },
+  { command: "sessions", description: "Lista sesiones" },
+  { command: "models", description: "Modelos favoritos" },
+  { command: "compact", description: "Compacta sesion" },
+  { command: "resolve", description: "Resuelve username" },
+];

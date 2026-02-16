@@ -1,6 +1,7 @@
 import { Api } from "grammy";
 
 import { createTelegramBot } from "./bot/index.js";
+import { botCommandList } from "./bot/commands.js";
 import { loadConfig } from "./config.js";
 import { AuthzService } from "./auth/authz.js";
 import { OpenCodeClient } from "./opencode/client.js";
@@ -24,23 +25,31 @@ const bootstrap = async (): Promise<void> => {
   const store = new JsonStore(config.dataDir);
   await store.init();
 
-  const admins = await store.read("admins");
-  if (admins.length === 0) {
-    logger.info("Initializing admins from env", { count: config.admins.length });
-    await store.write(
-      "admins",
-      config.admins.map((telegramUserId) => ({ telegramUserId, createdAt: now() })),
-    );
-  }
+  logger.info("Syncing admins from env", { count: config.admins.length });
+  await store.write(
+    "admins",
+    config.admins.map((telegramUserId) => ({ telegramUserId, createdAt: now() })),
+  );
+
+  logger.info("Syncing allowed users from env", { count: config.allowedUsers.length });
+  await store.write(
+    "allowedUsers",
+    config.allowedUsers.map((telegramUserId) => ({
+      telegramUserId,
+      alias: config.admins.includes(telegramUserId) ? "admin" : "allowed",
+      addedBy: config.admins[0],
+      createdAt: now(),
+    })),
+  );
 
   const authz = new AuthzService(store);
-  for (const adminId of config.admins) {
-    await authz.addAllowedUser(adminId, adminId, "admin");
-  }
 
   const opencode = new OpenCodeClient({
     command: config.opencodeCommand,
     timeoutMs: config.opencodeTimeoutMs,
+    serverUrl: config.opencodeServerUrl,
+    serverUsername: config.opencodeServerUsername,
+    serverPassword: config.opencodeServerPassword,
   });
   const queue = new KeyedQueue();
 
@@ -52,6 +61,8 @@ const bootstrap = async (): Promise<void> => {
     opencode,
     queue,
   });
+
+  await bot.api.setMyCommands(botCommandList);
 
   if (config.transport === "polling") {
     await bot.start();

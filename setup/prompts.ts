@@ -4,6 +4,7 @@ import { stdin as input, stdout as output } from "node:process";
 export interface InstallerAnswers {
   botToken: string;
   adminUserIds: number[];
+  allowedUserIds: number[];
   transport: "polling" | "webhook";
   dataDir: string;
   opencodeCommand: string;
@@ -23,6 +24,7 @@ export const askInstallerQuestions = async (): Promise<InstallerAnswers> => {
   try {
     const botToken = (await rl.question("BOT_TOKEN: ")).trim();
     const adminRaw = (await rl.question("ADMIN_USER_IDS (comma separated): ")).trim();
+    const allowedRaw = (await rl.question("ALLOWED_USER_IDS (comma separated, optional): ")).trim();
     const transportRaw = (await rl.question("BOT_TRANSPORT [polling/webhook] (polling): ")).trim();
     const dataDirRaw = (await rl.question("DATA_DIR (./data): ")).trim();
     const opencodeCommandRaw = (await rl.question("OPENCODE_COMMAND (opencode): ")).trim();
@@ -31,6 +33,7 @@ export const askInstallerQuestions = async (): Promise<InstallerAnswers> => {
     return {
       botToken,
       adminUserIds: parseIds(adminRaw),
+      allowedUserIds: parseIds(allowedRaw),
       transport: transportRaw === "webhook" ? "webhook" : "polling",
       dataDir: dataDirRaw || "./data",
       opencodeCommand: opencodeCommandRaw || "opencode",
