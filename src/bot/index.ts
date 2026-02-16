@@ -85,7 +85,12 @@ export const createTelegramBot = (token: string, services: BotServices): Bot<Bot
           userId: from.id,
           existingSessionId,
         });
-        const result = await ctx.services.opencode.runPrompt(prompt, existingSessionId ?? undefined);
+        const sessionModel = await ctx.services.models.getModel(chat.id, from.id);
+        const result = await ctx.services.opencode.runPrompt(
+          prompt,
+          existingSessionId ?? undefined,
+          sessionModel ?? undefined,
+        );
         const sessionToPersist = result.sessionId ?? existingSessionId;
         if (sessionToPersist) {
           await ctx.services.sessions.setSession(chat.id, from.id, sessionToPersist);
@@ -115,7 +120,7 @@ export const createTelegramBot = (token: string, services: BotServices): Bot<Bot
           userId: from.id,
           message,
         });
-        await ctx.reply(`Error al ejecutar OpenCode: ${message}`);
+        await ctx.reply(message);
       } finally {
         stopTypingStatus();
       }

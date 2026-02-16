@@ -6,6 +6,7 @@ import type {
   AdminUser,
   AllowedUser,
   LastMessage,
+  SessionModel,
   SessionLink,
   UsernameIndexEntry,
 } from "./types.js";
@@ -14,6 +15,7 @@ type FileValueMap = {
   allowedUsers: AllowedUser[];
   admins: AdminUser[];
   sessionLinks: SessionLink[];
+  sessionModels: SessionModel[];
   lastMessages: LastMessage[];
   usernameIndex: UsernameIndexEntry[];
 };
@@ -22,6 +24,7 @@ const EMPTY_VALUES: FileValueMap = {
   allowedUsers: [],
   admins: [],
   sessionLinks: [],
+  sessionModels: [],
   lastMessages: [],
   usernameIndex: [],
 };

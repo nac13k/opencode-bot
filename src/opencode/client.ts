@@ -17,6 +17,19 @@ export interface OpenCodeSessionSummary {
   updated?: string;
 }
 
+export interface OpenCodeModelInfo {
+  id: string;
+  name: string;
+  favorite: boolean;
+}
+
+export class OpenCodeExecutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OpenCodeExecutionError";
+  }
+}
+
 interface ExecResult {
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -28,12 +41,15 @@ interface ExecResult {
 export class OpenCodeClient {
   constructor(private readonly options: OpenCodeClientOptions) {}
 
-  async runPrompt(prompt: string, sessionId?: string): Promise<OpenCodeRunResult> {
+  async runPrompt(prompt: string, sessionId?: string, model?: string): Promise<OpenCodeRunResult> {
     const isInvalidSessionError = (stderr: string): boolean =>
       stderr.includes("sessionID") || stderr.includes('must start with "ses"') || stderr.includes("invalid_format");
 
     const runOnce = async (candidateSessionId?: string) => {
       const args = ["run", "--format", "json"];
+      if (model) {
+        args.push("--model", model);
+      }
       if (candidateSessionId) {
         args.push("--session", candidateSessionId);
       }
@@ -84,10 +100,10 @@ export class OpenCodeClient {
       if (retry.code === 0) {
         return this.parseJsonStream(retry.stdout);
       }
-      throw new Error(this.formatExecError(retry));
+      throw new OpenCodeExecutionError(this.formatExecError(retry));
     }
 
-    throw new Error(this.formatExecError(first));
+    throw new OpenCodeExecutionError(this.formatExecError(first));
   }
 
   async checkHealth(): Promise<void> {
@@ -103,7 +119,7 @@ export class OpenCodeClient {
       throw new Error(`OpenCode session list timeout after ${this.options.timeoutMs}ms`);
     }
     if (result.code !== 0) {
-      throw new Error(this.formatExecError(result, "OpenCode session list failed"));
+      throw new OpenCodeExecutionError(this.formatExecError(result));
     }
 
     const sessions = result.stdout
@@ -125,6 +141,34 @@ export class OpenCodeClient {
       });
 
     return sessions.slice(0, Math.max(1, limit));
+  }
+
+  async listFavoriteModels(): Promise<OpenCodeModelInfo[]> {
+    const result = await this.exec(this.options.command, ["model", "list", "--json"], this.options.timeoutMs);
+    if (result.timedOut) {
+      throw new Error(`OpenCode model list timeout after ${this.options.timeoutMs}ms`);
+    }
+    if (result.code !== 0) {
+      throw new OpenCodeExecutionError(this.formatExecError(result));
+    }
+
+    try {
+      const parsed = JSON.parse(result.stdout) as Array<{
+        id?: string;
+        name?: string;
+        favorite?: boolean;
+      }>;
+      return parsed
+        .filter((item) => item && typeof item.id === "string")
+        .map((item) => ({
+          id: item.id ?? item.name ?? "",
+          name: item.name ?? item.id ?? "",
+          favorite: Boolean(item.favorite),
+        }))
+        .filter((item) => item.id && item.favorite);
+    } catch {
+      return [];
+    }
   }
 
   private exec(
@@ -165,10 +209,13 @@ export class OpenCodeClient {
     });
   }
 
-  private formatExecError(result: ExecResult, prefix = "OpenCode failed"): string {
+  private formatExecError(result: ExecResult): string {
+    const stderr = result.stderr.trim();
+    if (stderr) return stderr;
+    const stdout = result.stdout.trim();
+    if (stdout) return stdout;
     const exitPart = result.code === null ? `signal=${result.signal ?? "unknown"}` : `code=${result.code}`;
-    const details = result.stderr.trim() || (result.signal ? `terminated by ${result.signal}` : "no stderr");
-    return `${prefix} (${exitPart}): ${details}`;
+    return `OpenCode failed (${exitPart})`;
   }
 
   private parseJsonStream(output: string): OpenCodeRunResult {

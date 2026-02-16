@@ -4,6 +4,7 @@ import { createTelegramBot } from "./bot/index.js";
 import { loadConfig } from "./config.js";
 import { AuthzService } from "./auth/authz.js";
 import { OpenCodeClient } from "./opencode/client.js";
+import { SessionModelService } from "./opencode/models.js";
 import { KeyedQueue } from "./opencode/queue.js";
 import { SessionLinkService } from "./opencode/sessions.js";
 import { UsernameResolver } from "./resolver/usernameResolver.js";
@@ -47,6 +48,7 @@ const bootstrap = async (): Promise<void> => {
     authz,
     resolver: new UsernameResolver(store, new Api(config.botToken)),
     sessions: new SessionLinkService(store),
+    models: new SessionModelService(store),
     opencode,
     queue,
   });

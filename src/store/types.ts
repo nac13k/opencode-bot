@@ -17,6 +17,13 @@ export interface SessionLink {
   updatedAt: string;
 }
 
+export interface SessionModel {
+  telegramChatId: number;
+  telegramUserId: number;
+  model: string;
+  updatedAt: string;
+}
+
 export interface LastMessage {
   opencodeSessionId: string;
   text: string;
@@ -33,6 +40,7 @@ export interface StoreState {
   allowedUsers: AllowedUser[];
   admins: AdminUser[];
   sessionLinks: SessionLink[];
+  sessionModels: SessionModel[];
   lastMessages: LastMessage[];
   usernameIndex: UsernameIndexEntry[];
 }

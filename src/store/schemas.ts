@@ -2,6 +2,7 @@ import type {
   AdminUser,
   AllowedUser,
   LastMessage,
+  SessionModel,
   SessionLink,
   UsernameIndexEntry,
 } from "./types.js";
@@ -28,6 +29,17 @@ export const isSessionLink = (value: unknown): value is SessionLink => {
     isNumber(obj.telegramChatId) &&
     isNumber(obj.telegramUserId) &&
     isString(obj.opencodeSessionId) &&
+    isString(obj.updatedAt)
+  );
+};
+
+export const isSessionModel = (value: unknown): value is SessionModel => {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as Partial<SessionModel>;
+  return (
+    isNumber(obj.telegramChatId) &&
+    isNumber(obj.telegramUserId) &&
+    isString(obj.model) &&
     isString(obj.updatedAt)
   );
 };

@@ -12,5 +12,6 @@ macos/TrayBridgeApp/dist/
 macos/TrayBridgeApp/embedded-server/
 macos/TrayBridgeApp/embedded-node/
 release-artifacts/
+dmg-staging/
 .DS_Store
 IMPLEMENTATION_PLAN.md

@@ -33,6 +33,7 @@ export const initializeDataFiles = async (answers: InstallerAnswers): Promise<vo
     })),
     [STORE_FILES.admins]: answers.adminUserIds.map((telegramUserId) => ({ telegramUserId, createdAt: now() })),
     [STORE_FILES.sessionLinks]: [],
+    [STORE_FILES.sessionModels]: [],
     [STORE_FILES.lastMessages]: [],
     [STORE_FILES.usernameIndex]: [],
   };

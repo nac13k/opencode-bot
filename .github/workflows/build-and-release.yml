@@ -78,17 +78,17 @@ jobs:
         run: |
           mkdir -p release-artifacts
           tar -czf release-artifacts/node-dist-${{ steps.version.outputs.version }}.tar.gz dist package.json package-lock.json README.md
-          ditto -c -k --sequesterRsrc --keepParent macos/TrayBridgeApp/dist/TrayBridgeApp.app release-artifacts/TrayBridgeApp-${{ steps.version.outputs.version }}.app.zip
+          ditto -c -k --sequesterRsrc --keepParent macos/TrayBridgeApp/dist/opencode-bot.app release-artifacts/opencode-bot-${{ steps.version.outputs.version }}.app.zip
 
           mkdir -p dmg-staging
-          cp -R macos/TrayBridgeApp/dist/TrayBridgeApp.app dmg-staging/
+          cp -R macos/TrayBridgeApp/dist/opencode-bot.app dmg-staging/
           ln -s /Applications dmg-staging/Applications
           hdiutil create \
-            -volname "TrayBridgeApp-${{ steps.version.outputs.version }}" \
+            -volname "opencode-bot-${{ steps.version.outputs.version }}" \
             -srcfolder dmg-staging \
             -ov \
             -format UDZO \
-            "release-artifacts/TrayBridgeApp-${{ steps.version.outputs.version }}.dmg"
+            "release-artifacts/opencode-bot-${{ steps.version.outputs.version }}.dmg"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

@@ -42,6 +42,8 @@ const isSessionId = (value: string): boolean => /^ses_[A-Za-z0-9]+$/.test(value)
 
 const sessionDataPrefix = "session:use:";
 const sessionNewData = "session:new";
+const modelDataPrefix = "model:set:";
+const modelClearData = "model:clear";
 
 const truncate = (value: string, max = 58): string => {
   if (value.length <= max) return value;
@@ -55,6 +57,16 @@ const buildSessionKeyboard = (sessions: Array<{ id: string; title: string }>): I
     keyboard.text(label, `${sessionDataPrefix}${session.id}`).row();
   }
   keyboard.text("Nueva sesion", sessionNewData);
+  return keyboard;
+};
+
+const buildModelKeyboard = (models: Array<{ id: string; name: string }>): InlineKeyboard => {
+  const keyboard = new InlineKeyboard();
+  for (const model of models) {
+    const label = truncate(model.name || model.id, 48);
+    keyboard.text(label, `${modelDataPrefix}${model.id}`).row();
+  }
+  keyboard.text("Quitar modelo", modelClearData);
   return keyboard;
 };
 
@@ -199,6 +211,35 @@ export const registerCommands = (bot: Bot<BotContext>): void => {
     });
   });
 
+  bot.command("models", async (ctx) => {
+    const userId = await requireAllowed(ctx);
+    if (!userId) return;
+
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      await ctx.reply("No se pudo identificar el chat.");
+      return;
+    }
+
+    const favorites = await ctx.services.opencode.listFavoriteModels();
+    if (favorites.length === 0) {
+      await ctx.reply("No hay modelos favoritos configurados.");
+      return;
+    }
+
+    const current = await ctx.services.models.getModel(chatId, userId);
+    const body = favorites
+      .map((model, index) => {
+        const label = model.name || model.id;
+        return `${index + 1}. ${label}${model.id === current ? " (activo)" : ""}`;
+      })
+      .join("\n");
+
+    await ctx.reply(`Modelos favoritos (elige uno):\n${body}`, {
+      reply_markup: buildModelKeyboard(favorites),
+    });
+  });
+
   bot.callbackQuery(new RegExp(`^${sessionDataPrefix}`), async (ctx) => {
     const userId = await requireAllowed(ctx);
     if (!userId) {
@@ -239,5 +280,49 @@ export const registerCommands = (bot: Bot<BotContext>): void => {
     await ctx.services.sessions.clearSession(chatId, userId);
     await ctx.answerCallbackQuery({ text: "Sesion limpiada" });
     await ctx.reply("Sesion reiniciada. El proximo mensaje creara una sesion nueva.");
+  });
+
+  bot.callbackQuery(new RegExp(`^${modelDataPrefix}`), async (ctx) => {
+    const userId = await requireAllowed(ctx);
+    if (!userId) {
+      await ctx.answerCallbackQuery({ text: "No autorizado", show_alert: true });
+      return;
+    }
+
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      await ctx.answerCallbackQuery({ text: "Chat no disponible", show_alert: true });
+      return;
+    }
+
+    const model = ctx.callbackQuery.data.replace(modelDataPrefix, "").trim();
+    const favorites = await ctx.services.opencode.listFavoriteModels();
+    const favoriteIds = new Set(favorites.map((item) => item.id));
+    if (!favoriteIds.has(model)) {
+      await ctx.answerCallbackQuery({ text: "Modelo invalido", show_alert: true });
+      return;
+    }
+
+    await ctx.services.models.setModel(chatId, userId, model);
+    await ctx.answerCallbackQuery({ text: "Modelo actualizado" });
+    await ctx.reply(`Modelo activo: ${model}`);
+  });
+
+  bot.callbackQuery(modelClearData, async (ctx) => {
+    const userId = await requireAllowed(ctx);
+    if (!userId) {
+      await ctx.answerCallbackQuery({ text: "No autorizado", show_alert: true });
+      return;
+    }
+
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      await ctx.answerCallbackQuery({ text: "Chat no disponible", show_alert: true });
+      return;
+    }
+
+    await ctx.services.models.clearModel(chatId, userId);
+    await ctx.answerCallbackQuery({ text: "Modelo limpiado" });
+    await ctx.reply("Modelo reiniciado. Se usara el default de OpenCode.");
   });
 };

@@ -77,6 +77,12 @@ npm start
 - `/session new` clear session link and force a new one on next message
 - `/sessions` alias to list recent sessions with interactive buttons
 
+## Model Selector
+
+- `/models` list favorite models marked in OpenCode
+- Clicking a model sets it for the current chat/user session
+- Use "Quitar modelo" to clear and use OpenCode default
+
 ## Notes
 
 - Auth is strictly by numeric `telegramUserId`.
@@ -105,8 +111,9 @@ swift run TrayBridgeApp
 Build a double-clickable `.app` bundle:
 
 ```bash
+./macos/TrayBridgeApp/scripts/prepare-embedded-server.sh
 ./macos/TrayBridgeApp/scripts/build-app.sh
-open ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
+open ./macos/TrayBridgeApp/dist/opencode-bot.app
 ```
 
 ### Download and install from GitHub Releases
@@ -121,18 +128,18 @@ https://github.com/nac13k/opencode-bot/releases
 
 2. Download the latest file:
 
-- `TrayBridgeApp-<version>.dmg` (recommended, self-contained)
-- `TrayBridgeApp-<version>.app.zip`
+- `opencode-bot-<version>.dmg` (recommended, self-contained)
+- `opencode-bot-<version>.app.zip`
 
-3. Unzip and move `TrayBridgeApp.app` to `Applications`.
+3. Unzip and move `opencode-bot.app` to `Applications`.
 
 ![Install app in Applications](docs/images/app-install.svg)
 
 4. First launch:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/TrayBridgeApp.app
-open /Applications/TrayBridgeApp.app
+xattr -dr com.apple.quarantine /Applications/opencode-bot.app
+open /Applications/opencode-bot.app
 ```
 
 5. In app settings, configure:
@@ -150,9 +157,9 @@ The app persists this configuration in SQLite and launches the bundled bridge se
 If macOS blocks startup because of signature/trust:
 
 ```bash
-xattr -dr com.apple.quarantine ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
-codesign --force --deep --sign - ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
-open ./macos/TrayBridgeApp/dist/TrayBridgeApp.app
+xattr -dr com.apple.quarantine ./macos/TrayBridgeApp/dist/opencode-bot.app
+codesign --force --deep --sign - ./macos/TrayBridgeApp/dist/opencode-bot.app
+open ./macos/TrayBridgeApp/dist/opencode-bot.app
 ```
 
 For distribution with a real Apple certificate:

@@ -3,9 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="TrayBridgeApp"
+BUNDLE_NAME="opencode-bot"
 BUILD_DIR="$ROOT_DIR/.build/debug"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/$APP_NAME.app"
+APP_DIR="$DIST_DIR/$BUNDLE_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -91,12 +92,16 @@ copy_embedded_runtime() {
     echo "Embedding server payload..."
     rm -rf "$RESOURCES_DIR/server"
     cp -R "$EMBEDDED_SERVER_SRC" "$RESOURCES_DIR/server"
+  else
+    echo "Embedded server payload missing. Run scripts/prepare-embedded-server.sh first."
   fi
 
   if [ -d "$EMBEDDED_NODE_SRC" ]; then
     echo "Embedding node runtime..."
     rm -rf "$RESOURCES_DIR/node"
     cp -R "$EMBEDDED_NODE_SRC" "$RESOURCES_DIR/node"
+  else
+    echo "Embedded node runtime missing. Run scripts/prepare-embedded-server.sh first."
   fi
 }
 
@@ -112,15 +117,21 @@ chmod +x "$MACOS_DIR/$APP_NAME"
 generate_icon
 copy_embedded_runtime
 
+if [ ! -d "$RESOURCES_DIR/server" ]; then
+  echo "ERROR: Missing embedded server payload."
+  echo "Run: ./macos/TrayBridgeApp/scripts/prepare-embedded-server.sh"
+  exit 1
+fi
+
 cat > "$PLIST_PATH" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>TrayBridgeApp</string>
+  <string>opencode-bot</string>
   <key>CFBundleDisplayName</key>
-  <string>TrayBridgeApp</string>
+  <string>opencode-bot</string>
   <key>CFBundleExecutable</key>
   <string>TrayBridgeApp</string>
   <key>CFBundleIdentifier</key>
