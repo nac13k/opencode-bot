@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="TrayBridgeApp"
+APP_NAME="OpencodeBot"
 BUNDLE_NAME="opencode-bot"
 BUILD_DIR="$ROOT_DIR/.build/debug"
 DIST_DIR="$ROOT_DIR/dist"
@@ -111,7 +111,7 @@ copy_embedded_runtime
 
 if [ ! -d "$RESOURCES_DIR/server" ]; then
   echo "ERROR: Missing embedded server payload."
-  echo "Run: ./macos/TrayBridgeApp/scripts/prepare-embedded-server.sh"
+  echo "Run prepare-embedded-server.sh before packaging."
   exit 1
 fi
 
@@ -125,15 +125,15 @@ cat > "$PLIST_PATH" <<'EOF'
   <key>CFBundleDisplayName</key>
   <string>opencode-bot</string>
   <key>CFBundleExecutable</key>
-  <string>TrayBridgeApp</string>
+  <string>OpencodeBot</string>
   <key>CFBundleIdentifier</key>
-  <string>labs.hanami.traybridge</string>
+  <string>labs.hanami.opencode-bot</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleIconFile</key>
   <string>TrayBridge</string>
   <key>CFBundleGetInfoString</key>
-  <string>Menu bar app to control OpenCode Telegram Bridge service.</string>
+  <string>Menu bar app to control opencode-bot bridge service.</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>CFBundleShortVersionString</key>

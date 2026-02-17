@@ -48,7 +48,10 @@ OPENCODE_SERVER_URL=http://127.0.0.1:4096
 OPENCODE_SERVER_USERNAME=opencode
 OPENCODE_SERVER_PASSWORD=<optional>
 DEFAULT_SESSION_ID=<optional>
-NODE_BINARY=/opt/homebrew/bin/node
+HEALTH_PORT=4097
+RELAY_MODE=last
+RELAY_FALLBACK=true
+RELAY_FALLBACK_DELAY_MS=3000
 ```
 
 ## Run
@@ -93,11 +96,12 @@ npm start
 
 ## macOS Tray App
 
-This repository includes a macOS menu bar app at `macos/TrayBridgeApp`.
+This repository includes a macOS menu bar app at `macos/opencode-bot`.
 
 - Menu bar icon shows running/stopped status.
 - Menu supports Start, Stop, Restart, and opening settings.
 - Settings window manages `BOT_TOKEN`, `ADMIN_USER_IDS`, `ALLOWED_USER_IDS`, transport, OpenCode server settings, and logs.
+- Settings include an interaction panel to execute bridge commands (`status`, `session`, `models`, `compact`, `allow`, `deny`, `list`, `resolve`) and inspect full JSON responses.
 - Settings are stored in a local SQLite database inside the app support directory.
 - Release builds bundle the server payload (and Node runtime) inside the app for easier install.
 - App runs only with bundled server payload (no external project-path fallback).
@@ -106,22 +110,22 @@ This repository includes a macOS menu bar app at `macos/TrayBridgeApp`.
 Run locally:
 
 ```bash
-cd macos/TrayBridgeApp
-swift run TrayBridgeApp
+cd macos/opencode-bot
+swift run OpencodeBot
 ```
 
 Build a double-clickable `.app` bundle:
 
 ```bash
-./scripts/build-tray-bridge.sh
+bash ./scripts/build-tray-bridge.sh
 ```
 
 Or run steps manually:
 
 ```bash
-./macos/TrayBridgeApp/scripts/prepare-embedded-server.sh
-./macos/TrayBridgeApp/scripts/build-app.sh
-open ./macos/TrayBridgeApp/dist/opencode-bot.app
+bash ./macos/opencode-bot/scripts/prepare-embedded-server.sh
+bash ./macos/opencode-bot/scripts/build-app.sh
+open ./macos/opencode-bot/dist/opencode-bot.app
 ```
 
 ### Download and install from GitHub Releases
@@ -165,15 +169,15 @@ The app persists this configuration in SQLite and launches the bundled bridge se
 If macOS blocks startup because of signature/trust:
 
 ```bash
-xattr -dr com.apple.quarantine ./macos/TrayBridgeApp/dist/opencode-bot.app
-codesign --force --deep --sign - ./macos/TrayBridgeApp/dist/opencode-bot.app
-open ./macos/TrayBridgeApp/dist/opencode-bot.app
+xattr -dr com.apple.quarantine ./macos/opencode-bot/dist/opencode-bot.app
+codesign --force --deep --sign - ./macos/opencode-bot/dist/opencode-bot.app
+open ./macos/opencode-bot/dist/opencode-bot.app
 ```
 
 For distribution with a real Apple certificate:
 
 ```bash
-APPLE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./macos/TrayBridgeApp/scripts/build-app.sh
+APPLE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" bash ./macos/opencode-bot/scripts/build-app.sh
 ```
 
 ## CI/CD on `main`
@@ -188,3 +192,33 @@ This project includes a GitHub Actions workflow at `.github/workflows/build-and-
 - Publish: a GitHub Release is created/updated with build artifacts.
 
 If you want a new tag/release version, update `version` in `package.json`.
+
+## Go Migration (WIP)
+
+The Go rewrite bootstrap is under `go-bridge/` and currently includes:
+
+- SQLite migrations + seed from env
+- Rotating file logger
+- `serve` command with `GET /health`
+- `resolve --usernames` command (best-effort via Telegram `getChat`)
+- Telegram transport in `polling` and `webhook` modes
+- SSE relay from OpenCode `/event` with `RELAY_MODE` (`last`/`final`) and fallback delay
+- Bot commands in Go: `/start`, `/status`, `/session`, `/sessions`, `/compact`, `/models`, `/allow`, `/deny`, `/list`
+- Local tray-friendly endpoint: `POST /resolve` with JSON body `{ "usernames": ["@a", "@b"] }`
+
+Run locally:
+
+```bash
+cd go-bridge
+go mod tidy
+go run ./cmd/bridge --migrate
+go run ./cmd/bridge serve
+```
+
+Webhook mode requires:
+
+```env
+BOT_TRANSPORT=webhook
+WEBHOOK_URL=https://your.domain/telegram/webhook
+WEBHOOK_LISTEN_ADDR=:8090
+```

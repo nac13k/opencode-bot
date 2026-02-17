@@ -2,19 +2,19 @@
 import PackageDescription
 
 let package = Package(
-  name: "TrayBridgeApp",
+  name: "opencode-bot",
   platforms: [
     .macOS(.v14),
   ],
   products: [
     .executable(
-      name: "TrayBridgeApp",
-      targets: ["TrayBridgeApp"]
+      name: "OpencodeBot",
+      targets: ["OpencodeBot"]
     ),
   ],
   targets: [
     .executableTarget(
-      name: "TrayBridgeApp",
+      name: "OpencodeBot",
       path: "Sources",
       linkerSettings: [
         .linkedLibrary("sqlite3"),

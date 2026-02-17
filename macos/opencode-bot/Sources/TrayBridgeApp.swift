@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @main
-struct TrayBridgeApp: App {
+struct OpencodeBotApp: App {
   @StateObject private var serviceManager = ServiceManager()
 
   init() {
@@ -14,7 +14,7 @@ struct TrayBridgeApp: App {
       TrayMenuView(serviceManager: serviceManager)
     }
 
-    Window("Bridge Settings", id: "settings") {
+    Window("opencode-bot Settings", id: "settings") {
       SettingsView(serviceManager: serviceManager)
         .frame(minWidth: 720, minHeight: 640)
         .onAppear {

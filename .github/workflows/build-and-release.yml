@@ -29,6 +29,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go-bridge/go.mod
+
       - name: Install dependencies
         run: npm ci
 
@@ -38,21 +43,11 @@ jobs:
           npm run build
           npm test
 
-      - name: Prepare embedded server payload
-        run: |
-          rm -rf macos/TrayBridgeApp/embedded-server macos/TrayBridgeApp/embedded-node
-          mkdir -p macos/TrayBridgeApp/embedded-server
-          cp -R dist macos/TrayBridgeApp/embedded-server/dist
-          cp package.json package-lock.json macos/TrayBridgeApp/embedded-server/
-          npm ci --omit=dev --prefix macos/TrayBridgeApp/embedded-server
-
-          NODE_BIN="$(which node)"
-          NODE_ROOT="$(cd "$(dirname "$NODE_BIN")/.." && pwd)"
-          mkdir -p macos/TrayBridgeApp/embedded-node
-          cp -R "$NODE_ROOT"/* macos/TrayBridgeApp/embedded-node/
+      - name: Prepare embedded bridge payload
+        run: bash ./macos/opencode-bot/scripts/prepare-embedded-server.sh
 
       - name: Build macOS tray app bundle
-        run: ./macos/TrayBridgeApp/scripts/build-app.sh
+        run: bash ./macos/opencode-bot/scripts/build-app.sh
 
       - name: Resolve version from package.json
         id: version
@@ -78,10 +73,10 @@ jobs:
         run: |
           mkdir -p release-artifacts
           tar -czf release-artifacts/node-dist-${{ steps.version.outputs.version }}.tar.gz dist package.json package-lock.json README.md
-          ditto -c -k --sequesterRsrc --keepParent macos/TrayBridgeApp/dist/opencode-bot.app release-artifacts/opencode-bot-${{ steps.version.outputs.version }}.app.zip
+          ditto -c -k --sequesterRsrc --keepParent macos/opencode-bot/dist/opencode-bot.app release-artifacts/opencode-bot-${{ steps.version.outputs.version }}.app.zip
 
           mkdir -p dmg-staging
-          cp -R macos/TrayBridgeApp/dist/opencode-bot.app dmg-staging/
+          cp -R macos/opencode-bot/dist/opencode-bot.app dmg-staging/
           ln -s /Applications dmg-staging/Applications
           hdiutil create \
             -volname "opencode-bot-${{ steps.version.outputs.version }}" \

@@ -12,7 +12,7 @@ final class SQLiteConfigStore {
       appropriateFor: nil,
       create: true
     )
-      .appendingPathComponent("TrayBridgeApp", isDirectory: true)
+      .appendingPathComponent("opencode-bot", isDirectory: true)
 
     try fm.createDirectory(at: base, withIntermediateDirectories: true)
     dbURL = base.appendingPathComponent("config.sqlite", isDirectory: false)
