@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-
 export const validateTelegramToken = async (token: string): Promise<void> => {
   const response = await fetch(`https://api.telegram.org/bot${token}/getMe`);
   if (!response.ok) {
@@ -11,13 +9,23 @@ export const validateTelegramToken = async (token: string): Promise<void> => {
   }
 };
 
-export const validateOpenCodeCommand = async (command: string): Promise<void> => {
-  const code = await new Promise<number | null>((resolve, reject) => {
-    const child = spawn(command, ["--version"], { stdio: "ignore" });
-    child.on("error", reject);
-    child.on("close", resolve);
-  });
-  if (code !== 0) {
-    throw new Error("OpenCode command check failed");
+export const validateOpenCodeServer = async (
+  url: string,
+  username: string,
+  password?: string,
+): Promise<void> => {
+  const headers = new Headers({ Accept: "application/json" });
+  if (password) {
+    const auth = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
+    headers.set("Authorization", `Basic ${auth}`);
+  }
+
+  const response = await fetch(new URL("/global/health", url), { headers });
+  if (!response.ok) {
+    throw new Error(`OpenCode server validation failed: HTTP ${response.status}`);
+  }
+  const payload = (await response.json()) as { healthy?: boolean };
+  if (!payload.healthy) {
+    throw new Error("OpenCode server validation failed: unhealthy");
   }
 };

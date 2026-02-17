@@ -43,8 +43,11 @@ ADMIN_USER_IDS=<comma-separated-user-ids>
 ALLOWED_USER_IDS=<comma-separated-user-ids>
 BOT_TRANSPORT=polling
 DATA_DIR=./data
-OPENCODE_COMMAND=opencode
 OPENCODE_TIMEOUT_MS=120000
+OPENCODE_SERVER_URL=http://127.0.0.1:4096
+OPENCODE_SERVER_USERNAME=opencode
+OPENCODE_SERVER_PASSWORD=<optional>
+DEFAULT_SESSION_ID=<optional>
 NODE_BINARY=/opt/homebrew/bin/node
 ```
 
@@ -94,7 +97,7 @@ This repository includes a macOS menu bar app at `macos/TrayBridgeApp`.
 
 - Menu bar icon shows running/stopped status.
 - Menu supports Start, Stop, Restart, and opening settings.
-- Settings window manages `BOT_TOKEN`, `ADMIN_USER_IDS`, `ALLOWED_USER_IDS`, transport, OpenCode settings, and logs.
+- Settings window manages `BOT_TOKEN`, `ADMIN_USER_IDS`, `ALLOWED_USER_IDS`, transport, OpenCode server settings, and logs.
 - Settings are stored in a local SQLite database inside the app support directory.
 - Release builds bundle the server payload (and Node runtime) inside the app for easier install.
 - App runs only with bundled server payload (no external project-path fallback).
@@ -108,6 +111,12 @@ swift run TrayBridgeApp
 ```
 
 Build a double-clickable `.app` bundle:
+
+```bash
+./scripts/build-tray-bridge.sh
+```
+
+Or run steps manually:
 
 ```bash
 ./macos/TrayBridgeApp/scripts/prepare-embedded-server.sh
@@ -145,7 +154,7 @@ open /Applications/opencode-bot.app
 
 - `BOT_TOKEN`
 - `ADMIN_USER_IDS`
-- optional OpenCode fields (`OPENCODE_COMMAND`, timeout, transport)
+- optional OpenCode fields (Server URL, Username, Password, Default Session, timeout, transport)
 
 The app persists this configuration in SQLite and launches the bundled bridge service.
 

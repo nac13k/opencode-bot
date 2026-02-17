@@ -6,7 +6,8 @@ struct SettingsView: View {
   @State private var newAllowedId = ""
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 14) {
       Text("OpenCode Telegram Bridge")
         .font(.title2)
         .bold()
@@ -17,20 +18,20 @@ struct SettingsView: View {
       GroupBox("Configuration") {
         VStack(alignment: .leading, spacing: 10) {
           HStack {
-            Text("BOT_TOKEN")
-              .frame(width: 110, alignment: .leading)
-            SecureField("Telegram bot token", text: $serviceManager.botToken)
+            Text("Bot token")
+              .frame(width: 160, alignment: .leading)
+            SecureField("123456789:ABC...", text: $serviceManager.botToken)
           }
 
           VStack(alignment: .leading, spacing: 8) {
-            Text("ADMIN_USER_IDS")
+            Text("Admin user IDs")
               .font(.caption)
               .foregroundStyle(.secondary)
             chipGrid(ids: parsedIds(from: serviceManager.adminUserIds)) { id in
               serviceManager.adminUserIds = removeId(id, from: serviceManager.adminUserIds)
             }
             HStack {
-              TextField("Agregar admin id", text: $newAdminId)
+              TextField("Add admin ID", text: $newAdminId)
               Button("Add") {
                 serviceManager.adminUserIds = addId(newAdminId, to: serviceManager.adminUserIds)
                 newAdminId = ""
@@ -39,14 +40,14 @@ struct SettingsView: View {
           }
 
           VStack(alignment: .leading, spacing: 8) {
-            Text("ALLOWED_USER_IDS")
+            Text("Allowed user IDs")
               .font(.caption)
               .foregroundStyle(.secondary)
             chipGrid(ids: parsedIds(from: serviceManager.allowedUserIds)) { id in
               serviceManager.allowedUserIds = removeId(id, from: serviceManager.allowedUserIds)
             }
             HStack {
-              TextField("Agregar allowed id", text: $newAllowedId)
+              TextField("Add allowed ID", text: $newAllowedId)
               Button("Add") {
                 serviceManager.allowedUserIds = addId(newAllowedId, to: serviceManager.allowedUserIds)
                 newAllowedId = ""
@@ -56,7 +57,7 @@ struct SettingsView: View {
 
           HStack {
             Text("Transport")
-              .frame(width: 110, alignment: .leading)
+              .frame(width: 160, alignment: .leading)
             Picker("Transport", selection: $serviceManager.botTransport) {
               Text("polling").tag(BotTransport.polling)
               Text("webhook").tag(BotTransport.webhook)
@@ -65,15 +66,9 @@ struct SettingsView: View {
           }
 
           HStack {
-            Text("DATA_DIR")
-              .frame(width: 110, alignment: .leading)
-            TextField("./data", text: $serviceManager.dataDir)
-          }
-
-          HStack {
-            Text("OPENCODE_COMMAND")
-              .frame(width: 110, alignment: .leading)
-            TextField("opencode", text: $serviceManager.opencodeCommand)
+            Text("Data directory")
+              .frame(width: 160, alignment: .leading)
+            TextField("/path/to/data", text: $serviceManager.dataDir)
           }
 
           Divider()
@@ -83,32 +78,45 @@ struct SettingsView: View {
             .bold()
 
           HStack {
-            Text("OPENCODE_SERVER_URL")
-              .frame(width: 110, alignment: .leading)
+            Text("Server URL")
+              .frame(width: 160, alignment: .leading)
             TextField("http://127.0.0.1:4096", text: $serviceManager.opencodeServerUrl)
           }
 
           HStack {
-            Text("OPENCODE_SERVER_USERNAME")
-              .frame(width: 110, alignment: .leading)
+            Text("Username")
+              .frame(width: 160, alignment: .leading)
             TextField("opencode", text: $serviceManager.opencodeServerUsername)
           }
 
           HStack {
-            Text("OPENCODE_SERVER_PASSWORD")
-              .frame(width: 110, alignment: .leading)
-            SecureField("(optional)", text: $serviceManager.opencodeServerPassword)
+            Text("Password")
+              .frame(width: 160, alignment: .leading)
+            SecureField("Optional", text: $serviceManager.opencodeServerPassword)
           }
 
+          Divider()
+
+          Text("Default Session")
+            .font(.subheadline)
+            .bold()
+
           HStack {
-            Text("NODE_BINARY")
-              .frame(width: 110, alignment: .leading)
+            Text("Session ID")
+              .frame(width: 160, alignment: .leading)
+            TextField("ses_...", text: $serviceManager.defaultSessionId)
+          }
+
+
+          HStack {
+            Text("Node binary")
+              .frame(width: 160, alignment: .leading)
             TextField("/opt/homebrew/bin/node", text: $serviceManager.nodeBinaryPath)
           }
 
           HStack {
-            Text("TIMEOUT_MS")
-              .frame(width: 110, alignment: .leading)
+            Text("Timeout (ms)")
+              .frame(width: 160, alignment: .leading)
             TextField("120000", value: $serviceManager.opencodeTimeoutMs, format: .number)
           }
 
@@ -155,6 +163,26 @@ struct SettingsView: View {
         .padding(.vertical, 2)
       }
 
+      GroupBox("OpenCode Plugin") {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Installs the global plugin and configures dataDir for the embedded server.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          HStack {
+            Button("Install Plugin") {
+              serviceManager.installOpenCodePlugin()
+            }
+            if let status = serviceManager.pluginStatusText {
+              Text(status)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+          }
+        }
+        .padding(.vertical, 2)
+      }
+
       GroupBox("Logs") {
         VStack(alignment: .leading, spacing: 8) {
           ScrollView {
@@ -181,8 +209,11 @@ struct SettingsView: View {
           }
         }
       }
+      }
+      .padding(.top, 20)
+      .padding(.horizontal, 16)
+      .padding(.bottom, 16)
     }
-    .padding(16)
     .alert("Node requerido", isPresented: Binding(
       get: { serviceManager.alertMessage != nil },
       set: { value in if !value { serviceManager.alertMessage = nil } }

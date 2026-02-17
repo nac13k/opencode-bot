@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { askInstallerQuestions } from "./prompts.js";
-import { validateOpenCodeCommand, validateTelegramToken } from "./preflight.js";
+import { validateOpenCodeServer, validateTelegramToken } from "./preflight.js";
 import { initializeDataFiles, installGlobalPlugin, writeEnvFile } from "./writers.js";
 
 const assertAnswers = (answers: Awaited<ReturnType<typeof askInstallerQuestions>>): void => {
@@ -23,8 +23,12 @@ const run = async (): Promise<void> => {
   process.stdout.write("- Validating Telegram token...\n");
   await validateTelegramToken(answers.botToken);
 
-  process.stdout.write("- Validating OpenCode command...\n");
-  await validateOpenCodeCommand(answers.opencodeCommand);
+  process.stdout.write("- Validating OpenCode server...\n");
+  await validateOpenCodeServer(
+    answers.opencodeServerUrl,
+    answers.opencodeServerUsername,
+    answers.opencodeServerPassword || undefined,
+  );
 
   process.stdout.write("- Writing .env...\n");
   await writeEnvFile(answers);

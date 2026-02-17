@@ -19,7 +19,6 @@ const bootstrap = async (): Promise<void> => {
   logger.info("Bootstrapping telegram bridge", {
     dataDir: config.dataDir,
     transport: config.transport,
-    opencodeCommand: config.opencodeCommand,
     timeoutMs: config.opencodeTimeoutMs,
   });
   const store = new JsonStore(config.dataDir);
@@ -42,10 +41,13 @@ const bootstrap = async (): Promise<void> => {
     })),
   );
 
+  if (config.defaultSessionId) {
+    logger.info("Default session configured", { sessionId: config.defaultSessionId });
+  }
+
   const authz = new AuthzService(store);
 
   const opencode = new OpenCodeClient({
-    command: config.opencodeCommand,
     timeoutMs: config.opencodeTimeoutMs,
     serverUrl: config.opencodeServerUrl,
     serverUsername: config.opencodeServerUsername,
@@ -56,7 +58,7 @@ const bootstrap = async (): Promise<void> => {
   const bot = createTelegramBot(config.botToken, {
     authz,
     resolver: new UsernameResolver(store, new Api(config.botToken)),
-    sessions: new SessionLinkService(store),
+    sessions: new SessionLinkService(store, config.defaultSessionId),
     models: new SessionModelService(store),
     opencode,
     queue,

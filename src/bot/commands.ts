@@ -80,6 +80,13 @@ export const registerCommands = (bot: Bot<BotContext>): void => {
     if (!fromId) return;
     await ctx.services.resolver.updateFromMessage(fromId, ctx.from?.username);
     const allowed = await ctx.services.authz.isAllowed(fromId);
+    if (allowed) {
+      const chatId = ctx.chat?.id;
+      const defaultSessionId = ctx.services.sessions.getDefaultSessionId();
+      if (chatId && defaultSessionId) {
+        await ctx.services.sessions.setSession(chatId, fromId, defaultSessionId);
+      }
+    }
     await ctx.reply(
       allowed
         ? "Bot listo. Puedes enviar instrucciones para OpenCode."
@@ -193,7 +200,8 @@ export const registerCommands = (bot: Bot<BotContext>): void => {
     }
 
     if (action === "list") {
-      const sessions = await ctx.services.opencode.listSessions(5);
+      const currentSessionId = await ctx.services.sessions.getSession(chatId, userId);
+      const sessions = await ctx.services.opencode.listSessionsWithCurrent(currentSessionId, 5);
       if (sessions.length === 0) {
         await ctx.reply("No hay sesiones disponibles en OpenCode.");
         return;
@@ -219,7 +227,13 @@ export const registerCommands = (bot: Bot<BotContext>): void => {
 
     if (action === "new") {
       await ctx.services.sessions.clearSession(chatId, userId);
-      await ctx.reply("Sesion reiniciada. El proximo mensaje creara una sesion nueva.");
+      const defaultSessionId = ctx.services.sessions.getDefaultSessionId();
+      if (defaultSessionId) {
+        await ctx.services.sessions.setSession(chatId, userId, defaultSessionId);
+        await ctx.reply(`Sesion reiniciada. Sesion default: ${defaultSessionId}`);
+      } else {
+        await ctx.reply("Sesion reiniciada. El proximo mensaje creara una sesion nueva.");
+      }
       return;
     }
 
@@ -229,7 +243,13 @@ export const registerCommands = (bot: Bot<BotContext>): void => {
   bot.command("sessions", async (ctx) => {
     const userId = await requireAllowed(ctx);
     if (!userId) return;
-    const sessions = await ctx.services.opencode.listSessions(5);
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      await ctx.reply("No se pudo identificar el chat.");
+      return;
+    }
+    const currentSessionId = await ctx.services.sessions.getSession(chatId, userId);
+    const sessions = await ctx.services.opencode.listSessionsWithCurrent(currentSessionId, 5);
     if (sessions.length === 0) {
       await ctx.reply("No hay sesiones disponibles en OpenCode.");
       return;

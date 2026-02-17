@@ -17,14 +17,15 @@ final class ServiceManager: ObservableObject {
   @Published var allowedUserIds = ""
   @Published var botTransport: BotTransport = .polling
   @Published var dataDir = "./data"
-  @Published var opencodeCommand = "opencode"
   @Published var opencodeTimeoutMs = 120000
   @Published var opencodeServerUrl = "http://127.0.0.1:4096"
   @Published var opencodeServerUsername = "opencode"
   @Published var opencodeServerPassword = ""
+  @Published var defaultSessionId = ""
   @Published var nodeBinaryPath = ""
   @Published var usingBundledServer = false
   @Published var alertMessage: String? = nil
+  @Published var pluginStatusText: String? = nil
 
   private var process: Process?
   private var store: SQLiteConfigStore? = nil
@@ -40,11 +41,11 @@ final class ServiceManager: ObservableObject {
       allowedUserIds = values["ALLOWED_USER_IDS"] ?? ""
       botTransport = BotTransport(rawValue: values["BOT_TRANSPORT"] ?? "polling") ?? .polling
       dataDir = values["DATA_DIR"] ?? "./data"
-      opencodeCommand = values["OPENCODE_COMMAND"] ?? "opencode"
       opencodeTimeoutMs = Int(values["OPENCODE_TIMEOUT_MS"] ?? "120000") ?? 120000
       opencodeServerUrl = values["OPENCODE_SERVER_URL"] ?? "http://127.0.0.1:4096"
       opencodeServerUsername = values["OPENCODE_SERVER_USERNAME"] ?? "opencode"
       opencodeServerPassword = values["OPENCODE_SERVER_PASSWORD"] ?? ""
+      defaultSessionId = values["DEFAULT_SESSION_ID"] ?? ""
       nodeBinaryPath = values["NODE_BINARY"] ?? ""
     } catch {
       statusText = "SQLite config unavailable"
@@ -66,6 +67,32 @@ final class ServiceManager: ObservableObject {
     } catch {
       statusText = "Failed to save configuration"
       appendLog("[error] Save failed: \(error.localizedDescription)")
+    }
+  }
+
+  func installOpenCodePlugin() {
+    guard let serverDir = resolveBundledServerDirectory() else {
+      pluginStatusText = "Embedded server not found"
+      alertMessage = "No se encontro el servidor embebido. Recompila el bundle antes de instalar el plugin."
+      appendLog("[error] Plugin install failed: embedded server missing")
+      return
+    }
+
+    guard let config = buildPluginConfig(serverDir: serverDir) else {
+      pluginStatusText = "Plugin config failed"
+      appendLog("[error] Plugin install failed: invalid plugin config")
+      return
+    }
+
+    do {
+      let pluginDir = try installPluginFiles(serverDir: serverDir)
+      try writePluginConfig(config, pluginDir: pluginDir)
+      try registerPlugin(uri: pluginDir.appendingPathComponent("index.ts"))
+      pluginStatusText = "Plugin instalado"
+      appendLog("[info] OpenCode plugin installed at \(pluginDir.path)")
+    } catch {
+      pluginStatusText = "Plugin install failed"
+      appendLog("[error] Plugin install failed: \(error.localizedDescription)")
     }
   }
 
@@ -125,12 +152,14 @@ final class ServiceManager: ObservableObject {
     env["ALLOWED_USER_IDS"] = allowedUserIds
     env["BOT_TRANSPORT"] = botTransport.rawValue
     env["DATA_DIR"] = dataDir
-    env["OPENCODE_COMMAND"] = opencodeCommand
     env["OPENCODE_TIMEOUT_MS"] = String(opencodeTimeoutMs)
     env["OPENCODE_SERVER_URL"] = opencodeServerUrl
     env["OPENCODE_SERVER_USERNAME"] = opencodeServerUsername
     if !opencodeServerPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       env["OPENCODE_SERVER_PASSWORD"] = opencodeServerPassword
+    }
+    if !defaultSessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      env["DEFAULT_SESSION_ID"] = defaultSessionId
     }
     if !nodeBinaryPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       env["NODE_BINARY"] = nodeBinaryPath
@@ -206,11 +235,11 @@ final class ServiceManager: ObservableObject {
       "ALLOWED_USER_IDS": allowedUserIds,
       "BOT_TRANSPORT": botTransport.rawValue,
       "DATA_DIR": dataDir,
-      "OPENCODE_COMMAND": opencodeCommand,
       "OPENCODE_TIMEOUT_MS": String(opencodeTimeoutMs),
       "OPENCODE_SERVER_URL": opencodeServerUrl,
       "OPENCODE_SERVER_USERNAME": opencodeServerUsername,
       "OPENCODE_SERVER_PASSWORD": opencodeServerPassword,
+      "DEFAULT_SESSION_ID": defaultSessionId,
       "NODE_BINARY": nodeBinaryPath,
     ]
   }
@@ -224,6 +253,77 @@ final class ServiceManager: ObservableObject {
       return server
     }
     return nil
+  }
+
+  private func buildPluginConfig(serverDir: URL) -> [String: String]? {
+    let resolvedToken = botToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    if resolvedToken.isEmpty {
+      alertMessage = "BOT_TOKEN es requerido para instalar el plugin."
+      return nil
+    }
+
+    let dataDirValue = dataDir.trimmingCharacters(in: .whitespacesAndNewlines)
+    let resolvedDataDir: String
+    if dataDirValue.isEmpty {
+      resolvedDataDir = serverDir.appendingPathComponent("data").path
+    } else if dataDirValue.hasPrefix("/") {
+      resolvedDataDir = dataDirValue
+    } else if dataDirValue == "./data" {
+      resolvedDataDir = serverDir.appendingPathComponent("data").path
+    } else {
+      resolvedDataDir = serverDir.appendingPathComponent(dataDirValue).path
+    }
+
+    return [
+      "dataDir": resolvedDataDir,
+      "botToken": resolvedToken,
+    ]
+  }
+
+  private func installPluginFiles(serverDir: URL) throws -> URL {
+    let fm = FileManager.default
+    guard let sourceDir = Bundle.main.resourceURL?.appendingPathComponent("server/plugin-global/telegram-relay") else {
+      throw PluginInstallError.sourceMissing
+    }
+    let targetDir = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".config/opencode/plugin/telegram-relay", isDirectory: true)
+
+    if fm.fileExists(atPath: targetDir.path) {
+      try fm.removeItem(at: targetDir)
+    }
+    try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+    try fm.copyItem(at: sourceDir, to: targetDir)
+    return targetDir
+  }
+
+  private func writePluginConfig(_ config: [String: String], pluginDir: URL) throws {
+    let configUrl = pluginDir.appendingPathComponent("config.json")
+    let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+    try data.write(to: configUrl)
+  }
+
+  private func registerPlugin(uri: URL) throws {
+    let configDir = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".config/opencode", isDirectory: true)
+    try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+    let configUrl = configDir.appendingPathComponent("opencode.json")
+
+    var payload: [String: Any] = [:]
+    if let data = try? Data(contentsOf: configUrl), !data.isEmpty {
+      if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        payload = json
+      }
+    }
+
+    let pluginUri = "file://" + uri.path
+    var plugins = payload["plugin"] as? [String] ?? []
+    if !plugins.contains(pluginUri) {
+      plugins.append(pluginUri)
+    }
+    payload["plugin"] = plugins
+
+    let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+    try data.write(to: configUrl)
   }
 
   private func resolveNodeBinary() -> URL? {
@@ -279,8 +379,9 @@ final class ServiceManager: ObservableObject {
     if line.contains("getMe") && line.contains("404") {
       alertMessage = "BOT_TOKEN invalido. Debe tener formato <numero>:<texto> (ej: 123456789:AAAbbbCCC)."
     }
-    if line.contains("spawn opencode ENOENT") {
-      alertMessage = "No se encontro el comando opencode. Configura OPENCODE_COMMAND o agrega opencode al PATH."
-    }
+  }
+
+  private enum PluginInstallError: Error {
+    case sourceMissing
   }
 }

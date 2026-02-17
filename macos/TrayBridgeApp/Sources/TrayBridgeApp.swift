@@ -16,7 +16,7 @@ struct TrayBridgeApp: App {
 
     Window("Bridge Settings", id: "settings") {
       SettingsView(serviceManager: serviceManager)
-        .frame(minWidth: 680, minHeight: 500)
+        .frame(minWidth: 720, minHeight: 640)
         .onAppear {
           NSApp.activate(ignoringOtherApps: true)
         }

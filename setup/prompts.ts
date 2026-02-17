@@ -7,8 +7,10 @@ export interface InstallerAnswers {
   allowedUserIds: number[];
   transport: "polling" | "webhook";
   dataDir: string;
-  opencodeCommand: string;
   opencodeTimeoutMs: number;
+  opencodeServerUrl: string;
+  opencodeServerUsername: string;
+  opencodeServerPassword: string;
 }
 
 const parseIds = (raw: string): number[] =>
@@ -27,8 +29,10 @@ export const askInstallerQuestions = async (): Promise<InstallerAnswers> => {
     const allowedRaw = (await rl.question("ALLOWED_USER_IDS (comma separated, optional): ")).trim();
     const transportRaw = (await rl.question("BOT_TRANSPORT [polling/webhook] (polling): ")).trim();
     const dataDirRaw = (await rl.question("DATA_DIR (./data): ")).trim();
-    const opencodeCommandRaw = (await rl.question("OPENCODE_COMMAND (opencode): ")).trim();
     const timeoutRaw = (await rl.question("OPENCODE_TIMEOUT_MS (120000): ")).trim();
+    const serverUrlRaw = (await rl.question("OPENCODE_SERVER_URL (http://127.0.0.1:4096): ")).trim();
+    const serverUsernameRaw = (await rl.question("OPENCODE_SERVER_USERNAME (opencode): ")).trim();
+    const serverPasswordRaw = (await rl.question("OPENCODE_SERVER_PASSWORD (optional): ")).trim();
 
     return {
       botToken,
@@ -36,8 +40,10 @@ export const askInstallerQuestions = async (): Promise<InstallerAnswers> => {
       allowedUserIds: parseIds(allowedRaw),
       transport: transportRaw === "webhook" ? "webhook" : "polling",
       dataDir: dataDirRaw || "./data",
-      opencodeCommand: opencodeCommandRaw || "opencode",
       opencodeTimeoutMs: Number(timeoutRaw || "120000"),
+      opencodeServerUrl: serverUrlRaw || "http://127.0.0.1:4096",
+      opencodeServerUsername: serverUsernameRaw || "opencode",
+      opencodeServerPassword: serverPasswordRaw,
     };
   } finally {
     rl.close();

@@ -1,8 +1,6 @@
-import { spawn } from "node:child_process";
 import { logger } from "../logger.js";
 
 export interface OpenCodeClientOptions {
-  command: string;
   timeoutMs: number;
   serverUrl: string;
   serverUsername: string;
@@ -57,170 +55,132 @@ export class OpenCodeExecutionError extends Error {
   }
 }
 
-interface ExecResult {
-  code: number | null;
-  signal: NodeJS.Signals | null;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
+class OpenCodeHttpError extends OpenCodeExecutionError {
+  constructor(message: string, public readonly status?: number) {
+    super(message);
+    this.name = "OpenCodeHttpError";
+  }
 }
 
 export class OpenCodeClient {
   constructor(private readonly options: OpenCodeClientOptions) {}
 
   async runPrompt(prompt: string, sessionId?: string, model?: string): Promise<OpenCodeRunResult> {
-    const isInvalidSessionError = (stderr: string): boolean =>
-      stderr.includes("sessionID") || stderr.includes('must start with "ses"') || stderr.includes("invalid_format");
-
-    const runOnce = async (candidateSessionId?: string) => {
-      const args = ["run", "--format", "json"];
-      if (model) {
-        args.push("--model", model);
-      }
-      if (candidateSessionId) {
-        args.push("--session", candidateSessionId);
-      }
-      args.push(prompt);
-      logger.debug("Executing OpenCode command", {
-        command: this.options.command,
-        args: [...args.slice(0, -1), "<prompt>"] ,
-        promptLength: prompt.length,
-      });
-      return this.exec(this.options.command, args, this.options.timeoutMs);
+    const sendPrompt = async (candidateSessionId?: string): Promise<OpenCodeRunResult> => {
+      const resolvedSessionId = candidateSessionId ?? (await this.createSessionId());
+      const response = await this.sendMessage(resolvedSessionId, prompt, model);
+      const text = this.extractTextFromParts(response?.parts ?? []);
+      return {
+        sessionId: resolvedSessionId,
+        text,
+      };
     };
 
-    const first = await runOnce(sessionId);
-    logger.debug("OpenCode first attempt completed", {
-      code: first.code,
-      signal: first.signal,
-      timedOut: first.timedOut,
-      stdoutLength: first.stdout.length,
-      stderrLength: first.stderr.length,
-      stderrPreview: first.stderr.slice(0, 240),
-      usedSessionId: sessionId ?? null,
-    });
-
-    if (first.timedOut) {
-      throw new Error(`OpenCode timeout after ${this.options.timeoutMs}ms`);
-    }
-    const firstLooksLikeInvalidSession = typeof sessionId === "string" && isInvalidSessionError(first.stderr);
-
-    if (first.code === 0 && !firstLooksLikeInvalidSession) {
-      return this.parseJsonStream(first.stdout);
-    }
-
-    const invalidSession = firstLooksLikeInvalidSession;
-
-    if (invalidSession) {
-      logger.warn("Invalid session detected, retrying without session", { sessionId });
-      const retry = await runOnce();
-      logger.debug("OpenCode retry completed", {
-        code: retry.code,
-        signal: retry.signal,
-        timedOut: retry.timedOut,
-        stdoutLength: retry.stdout.length,
-        stderrLength: retry.stderr.length,
-      });
-      if (retry.timedOut) {
-        throw new Error(`OpenCode timeout after ${this.options.timeoutMs}ms`);
+    if (sessionId) {
+      try {
+        return await sendPrompt(sessionId);
+      } catch (error) {
+        if (error instanceof OpenCodeHttpError && error.status === 404) {
+          logger.warn("Invalid session detected, creating a new session", { sessionId });
+          return await sendPrompt();
+        }
+        throw error;
       }
-      if (retry.code === 0) {
-        return this.parseJsonStream(retry.stdout);
-      }
-      throw new OpenCodeExecutionError(this.formatExecError(retry));
     }
 
-    throw new OpenCodeExecutionError(this.formatExecError(first));
+    return await sendPrompt();
   }
 
   async checkHealth(): Promise<void> {
-    const result = await this.exec(this.options.command, ["--version"], 5000);
-    if (result.code !== 0) {
-      throw new Error("OpenCode command is not available");
+    const result = await this.requestJson<{ healthy?: boolean }>("/global/health", { method: "GET" }, 5000);
+    if (!result?.healthy) {
+      throw new Error("OpenCode server is not healthy");
     }
   }
 
   async listSessions(limit = 5): Promise<OpenCodeSessionSummary[]> {
-    const result = await this.exec(this.options.command, ["session", "list"], this.options.timeoutMs);
-    if (result.timedOut) {
-      throw new Error(`OpenCode session list timeout after ${this.options.timeoutMs}ms`);
-    }
-    if (result.code !== 0) {
-      throw new OpenCodeExecutionError(this.formatExecError(result));
-    }
+    const sessions = await this.requestJson<Array<OpenCodeSessionInfo>>("/session", { method: "GET" });
+    const mapped = (sessions ?? []).map((session) => ({
+      id: session.id,
+      title: session.title ?? "(untitled)",
+      updatedAt: this.parseTimestamp(session.time?.updated),
+      updated: this.formatTimestamp(session.time?.updated),
+    }));
+    const ordered = mapped.sort((a, b) => b.updatedAt - a.updatedAt);
+    return ordered.slice(0, Math.max(1, limit)).map(({ updatedAt: _, ...rest }) => rest);
+  }
 
-    const sessions = result.stdout
-      .split("\n")
-      .map((line) => line.trimEnd())
-      .filter((line) => line.startsWith("ses_"))
-      .map((line) => {
-        const idMatch = line.match(/^(ses_[A-Za-z0-9]+)/);
-        const id = idMatch?.[1] ?? line;
-        const rest = line.slice(id.length).trim();
-        const columns = rest.split(/\s{2,}/).filter(Boolean);
-        const title = columns[0] ?? "(untitled)";
-        const updated = columns.slice(1).join("  ") || undefined;
-        return {
-          id,
-          title,
-          updated,
-        };
+  async listSessionsWithCurrent(currentSessionId: string | null, limit = 5): Promise<OpenCodeSessionSummary[]> {
+    const sessions = await this.listSessions(limit);
+    if (!currentSessionId) return sessions;
+    if (sessions.some((session) => session.id === currentSessionId)) return sessions;
+
+    try {
+      const current = await this.requestJson<OpenCodeSessionInfo>(
+        `/session/${currentSessionId}`,
+        { method: "GET" },
+      );
+      const entry = {
+        id: current.id,
+        title: current.title ?? "(untitled)",
+        updated: this.formatTimestamp(current.time?.updated),
+        updatedAt: this.parseTimestamp(current.time?.updated),
+      };
+      const merged = [entry, ...sessions.map((session) => ({
+        ...session,
+        updatedAt: this.parseTimestamp((session as { updated?: string }).updated),
+      }))];
+      const ordered = merged
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, Math.max(1, limit))
+        .map(({ updatedAt: _, ...rest }) => rest);
+      return ordered;
+    } catch (error) {
+      logger.warn("Failed to fetch current session for list", {
+        sessionId: currentSessionId,
+        message: error instanceof Error ? error.message : String(error),
       });
-
-    return sessions.slice(0, Math.max(1, limit));
+      return sessions;
+    }
   }
 
   async compactSession(sessionId: string): Promise<void> {
-    const result = await this.exec(
-      this.options.command,
-      ["session", "compact", sessionId],
-      this.options.timeoutMs,
+    await this.requestJson(
+      `/session/${sessionId}/command`,
+      {
+        method: "POST",
+        body: {
+          command: "compact",
+          arguments: [],
+        },
+      },
     );
-    if (result.timedOut) {
-      throw new Error(`OpenCode compact timeout after ${this.options.timeoutMs}ms`);
-    }
-    if (result.code !== 0) {
-      throw new OpenCodeExecutionError(this.formatExecError(result));
-    }
   }
 
   async listFavoriteModels(): Promise<OpenCodeModelInfo[]> {
-    const result = await this.exec(this.options.command, ["model", "list", "--json"], this.options.timeoutMs);
-    if (result.timedOut) {
-      throw new Error(`OpenCode model list timeout after ${this.options.timeoutMs}ms`);
+    const config = await this.requestJson<unknown>("/config", { method: "GET" });
+    const configFavorites = this.extractFavoriteModelsFromConfig(config);
+    if (configFavorites.length > 0) {
+      return configFavorites;
     }
-    if (result.code !== 0) {
-      throw new OpenCodeExecutionError(this.formatExecError(result));
-    }
-
-    try {
-      const parsed = JSON.parse(result.stdout) as Array<{
-        id?: string;
-        name?: string;
-        favorite?: boolean;
-      }>;
-      return parsed
-        .filter((item) => item && typeof item.id === "string")
-        .map((item) => ({
-          id: item.id ?? item.name ?? "",
-          name: item.name ?? item.id ?? "",
-          favorite: Boolean(item.favorite),
-        }))
-        .filter((item) => item.id && item.favorite);
-    } catch {
-      return [];
-    }
+    const providers = await this.requestJson<unknown>("/config/providers", { method: "GET" });
+    return this.extractFavoriteModelsFromProviders(providers);
   }
 
   async getStatus(sessionId: string | null): Promise<OpenCodeSessionStatusReport> {
     const safeSessionId = sessionId ?? "";
     const [sessionStatus, sessionInfo, todos, files] = await Promise.all([
-      this.fetchJson<Record<string, { type: string; message?: string; attempt?: number }>>(
+      this.requestJson<Record<string, { type: string; message?: string; attempt?: number }>>(
         "/session/status",
+        { method: "GET" },
       ),
-      safeSessionId ? this.fetchJson<OpenCodeSessionInfo>(`/session/${safeSessionId}`) : null,
-      safeSessionId ? this.fetchJson<Array<OpenCodeTodo>>(`/session/${safeSessionId}/todo`) : [],
-      this.fetchJson<Array<OpenCodeFileStatus>>("/file/status"),
+      safeSessionId
+        ? this.requestJson<OpenCodeSessionInfo>(`/session/${safeSessionId}`, { method: "GET" })
+        : null,
+      safeSessionId
+        ? this.requestJson<Array<OpenCodeTodo>>(`/session/${safeSessionId}/todo`, { method: "GET" })
+        : [],
+      this.requestJson<Array<OpenCodeFileStatus>>("/file/status", { method: "GET" }),
     ]);
 
     const statusEntry = safeSessionId ? sessionStatus?.[safeSessionId] : undefined;
@@ -244,108 +204,15 @@ export class OpenCodeClient {
       contextPercent,
       todos: todoSummary,
       files: fileSummary,
-      lastUpdatedAt: sessionInfo?.time?.updated,
+      lastUpdatedAt: this.parseTimestamp(sessionInfo?.time?.updated),
     };
   }
 
-  private exec(
-    command: string,
-    args: string[],
-    timeoutMs: number,
-  ): Promise<ExecResult> {
-    return new Promise((resolve, reject) => {
-      const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-      let stdout = "";
-      let stderr = "";
-      let timedOut = false;
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-        setTimeout(() => {
-          if (!child.killed) {
-            child.kill("SIGKILL");
-          }
-        }, 2000);
-      }, timeoutMs);
-
-      child.stdout.on("data", (chunk) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk.toString();
-      });
-      child.on("error", (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      child.on("close", (code, signal) => {
-        clearTimeout(timer);
-        resolve({ code, signal, stdout, stderr, timedOut });
-      });
-    });
-  }
-
-  private formatExecError(result: ExecResult): string {
-    const stderr = result.stderr.trim();
-    if (stderr) return stderr;
-    const stdout = result.stdout.trim();
-    if (stdout) return stdout;
-    const exitPart = result.code === null ? `signal=${result.signal ?? "unknown"}` : `code=${result.code}`;
-    return `OpenCode failed (${exitPart})`;
-  }
-
-  private parseJsonStream(output: string): OpenCodeRunResult {
-    const lines = output
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    let detectedSessionId: string | null = null;
-    const textParts: string[] = [];
-
-    for (const line of lines) {
-      try {
-        const event = JSON.parse(line) as {
-          sessionID?: string;
-          type?: string;
-          part?: { text?: string };
-        };
-        if (event.sessionID && !detectedSessionId) {
-          detectedSessionId = event.sessionID;
-        }
-        if (event.type === "text" && event.part?.text) {
-          textParts.push(event.part.text);
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    if (!detectedSessionId) {
-      const regexMatch = output.match(/ses_[A-Za-z0-9]+/);
-      detectedSessionId = regexMatch?.[0] ?? null;
-    }
-
-    const textFromJson = textParts.join("\n").trim();
-    const fallbackText = lines
-      .filter((line) => !line.startsWith("{"))
-      .join("\n")
-      .trim();
-
-    const result = {
-      sessionId: detectedSessionId,
-      text: textFromJson || fallbackText,
-    };
-    logger.debug("Parsed OpenCode output", {
-      sessionId: result.sessionId,
-      textLength: result.text.length,
-      lineCount: lines.length,
-    });
-    return result;
-  }
-
-  private async fetchJson<T>(path: string): Promise<T> {
+  private async requestJson<T>(
+    path: string,
+    options: { method: string; body?: unknown },
+    timeoutOverrideMs?: number,
+  ): Promise<T> {
     const url = new URL(path, this.options.serverUrl);
     const headers = new Headers({ Accept: "application/json" });
     if (this.options.serverPassword) {
@@ -356,20 +223,176 @@ export class OpenCodeClient {
       headers.set("Authorization", `Basic ${auth}`);
     }
 
+    let body: string | undefined;
+    if (options.body !== undefined) {
+      headers.set("Content-Type", "application/json");
+      body = JSON.stringify(options.body);
+    }
+
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      timeoutOverrideMs ?? this.options.timeoutMs,
+    );
     try {
-      const response = await fetch(url, { headers, signal: controller.signal });
+      const response = await fetch(url, {
+        method: options.method,
+        headers,
+        body,
+        signal: controller.signal,
+      });
       if (!response.ok) {
-        throw new OpenCodeExecutionError(`OpenCode server error (${response.status})`);
+        const message = (await response.text()).trim();
+        throw new OpenCodeHttpError(
+          message || `OpenCode server error (${response.status})`,
+          response.status,
+        );
       }
-      return (await response.json()) as T;
+      const raw = await response.text();
+      if (!raw.trim()) {
+        return undefined as T;
+      }
+      try {
+        return JSON.parse(raw) as T;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new OpenCodeExecutionError(`OpenCode server invalid JSON: ${message}`);
+      }
     } catch (error) {
+      if (error instanceof OpenCodeHttpError) {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       throw new OpenCodeExecutionError(`OpenCode server unavailable: ${message}`);
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async createSessionId(): Promise<string> {
+    const session = await this.requestJson<OpenCodeSessionInfo>("/session", { method: "POST" });
+    if (!session?.id) {
+      throw new OpenCodeExecutionError("OpenCode session creation failed");
+    }
+    return session.id;
+  }
+
+  private async sendMessage(
+    sessionId: string,
+    prompt: string,
+    model?: string,
+  ): Promise<OpenCodeMessage> {
+    return this.requestJson<OpenCodeMessage>(
+      `/session/${sessionId}/message`,
+      {
+        method: "POST",
+        body: {
+          model,
+          parts: [
+            {
+              type: "text",
+              text: prompt,
+            },
+          ],
+        },
+      },
+    );
+  }
+
+  private extractTextFromParts(parts: Array<OpenCodeMessagePart>): string {
+    const textParts = parts
+      .map((part) => {
+        if (part.type === "text" && typeof part.text === "string") return part.text;
+        if (part.type === "text" && typeof part.content === "string") return part.content;
+        if (typeof part.text === "string") return part.text;
+        return "";
+      })
+      .filter(Boolean);
+    return textParts.join("\n").trim();
+  }
+
+  private extractFavoriteModelsFromConfig(config: unknown): OpenCodeModelInfo[] {
+    const modelEntries = this.extractModelEntries(config);
+    if (modelEntries.length > 0) {
+      return modelEntries.filter((item) => item.id && item.favorite);
+    }
+
+    if (!config || typeof config !== "object") return [];
+    const raw = config as Record<string, unknown>;
+    const favoriteList = raw.favoriteModels;
+    if (Array.isArray(favoriteList)) {
+      return favoriteList
+        .filter((item): item is string => typeof item === "string")
+        .map((id) => ({ id, name: id, favorite: true }));
+    }
+
+    return [];
+  }
+
+  private extractFavoriteModelsFromProviders(providersPayload: unknown): OpenCodeModelInfo[] {
+    if (!providersPayload || typeof providersPayload !== "object") return [];
+    const raw = providersPayload as Record<string, unknown>;
+    const providers = raw.providers;
+    if (!Array.isArray(providers)) return [];
+
+    const favorites: OpenCodeModelInfo[] = [];
+    for (const provider of providers) {
+      if (!provider || typeof provider !== "object") continue;
+      const providerRecord = provider as Record<string, unknown>;
+      const providerId = typeof providerRecord.id === "string" ? providerRecord.id : "";
+      const models = providerRecord.models;
+      if (!Array.isArray(models)) continue;
+      const modelEntries = this.extractModelEntries({ models });
+      for (const model of modelEntries) {
+        if (!model.favorite || !model.id) continue;
+        favorites.push({
+          id: providerId && !model.id.includes("/") ? `${providerId}/${model.id}` : model.id,
+          name: model.name || model.id,
+          favorite: true,
+        });
+      }
+    }
+    return favorites;
+  }
+
+  private extractModelEntries(payload: unknown): Array<OpenCodeModelInfo> {
+    if (!payload || typeof payload !== "object") return [];
+    const raw = payload as Record<string, unknown>;
+    const models = raw.models;
+    if (!Array.isArray(models)) return [];
+    return models
+      .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+      .map((item) => {
+        const idValue = item.id;
+        const nameValue = item.name;
+        const id = typeof idValue === "string" ? idValue : "";
+        const name = typeof nameValue === "string" ? nameValue : id;
+        return {
+          id,
+          name,
+          favorite: Boolean(item.favorite),
+        };
+      });
+  }
+
+  private parseTimestamp(value: unknown): number {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return 0;
+  }
+
+  private formatTimestamp(value: unknown): string | undefined {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return new Date(value).toISOString();
+    }
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+    }
+    return undefined;
   }
 
   private mapSessionStatus(value?: string): "idle" | "busy" | "retry" | "unknown" {
@@ -472,13 +495,24 @@ type OpenCodeFileStatus = {
 type OpenCodeSessionInfo = {
   id: string;
   title?: string;
-  time?: { updated?: number };
+  time?: { updated?: number | string };
   messages?: Array<OpenCodeAssistantMessage | OpenCodeUserMessage>;
   model?: {
     limit?: {
       context?: number;
     };
   };
+};
+
+type OpenCodeMessagePart = {
+  type?: "text" | string;
+  text?: string;
+  content?: string;
+};
+
+type OpenCodeMessage = {
+  info?: unknown;
+  parts?: Array<OpenCodeMessagePart>;
 };
 
 type OpenCodeAssistantMessage = {

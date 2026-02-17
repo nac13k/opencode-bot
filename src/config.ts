@@ -23,16 +23,17 @@ const parseIdList = (value: string): number[] =>
 const parseOptionalIdList = (value: string | undefined): number[] =>
   value ? parseIdList(value) : [];
 
+
 export interface AppConfig {
   botToken: string;
   admins: number[];
   allowedUsers: number[];
   dataDir: string;
-  opencodeCommand: string;
   opencodeTimeoutMs: number;
   opencodeServerUrl: string;
   opencodeServerUsername: string;
   opencodeServerPassword?: string;
+  defaultSessionId?: string;
   transport: "polling" | "webhook";
 }
 
@@ -56,11 +57,11 @@ export const loadConfig = (): AppConfig => {
     admins,
     allowedUsers,
     dataDir: path.resolve(env.DATA_DIR ?? "./data"),
-    opencodeCommand: env.OPENCODE_COMMAND ?? "opencode",
     opencodeTimeoutMs: Number(env.OPENCODE_TIMEOUT_MS ?? "120000"),
     opencodeServerUrl: env.OPENCODE_SERVER_URL ?? "http://127.0.0.1:4096",
     opencodeServerUsername: env.OPENCODE_SERVER_USERNAME ?? "opencode",
     opencodeServerPassword: env.OPENCODE_SERVER_PASSWORD,
+    defaultSessionId: env.DEFAULT_SESSION_ID || undefined,
     transport,
   };
 };

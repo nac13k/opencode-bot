@@ -14,8 +14,12 @@ export const writeEnvFile = async (answers: InstallerAnswers): Promise<void> => 
     `ALLOWED_USER_IDS=${answers.allowedUserIds.join(",")}`,
     `BOT_TRANSPORT=${answers.transport}`,
     `DATA_DIR=${answers.dataDir}`,
-    `OPENCODE_COMMAND=${answers.opencodeCommand}`,
     `OPENCODE_TIMEOUT_MS=${answers.opencodeTimeoutMs}`,
+    `OPENCODE_SERVER_URL=${answers.opencodeServerUrl}`,
+    `OPENCODE_SERVER_USERNAME=${answers.opencodeServerUsername}`,
+    ...(answers.opencodeServerPassword
+      ? [`OPENCODE_SERVER_PASSWORD=${answers.opencodeServerPassword}`]
+      : []),
   ].join("\n");
 
   await writeFile(path.resolve(".env"), `${content}\n`, "utf8");

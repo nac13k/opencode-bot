@@ -8,7 +8,7 @@ Operational guidance for coding agents in this repository.
 - Telegram runtime: `grammy`.
 - Config: `.env` loaded via `dotenv`.
 - Persistence: JSON files in `DATA_DIR` (default `./data`).
-- OpenCode integration: CLI invocation (`OPENCODE_COMMAND`).
+- OpenCode integration: HTTP server (`OPENCODE_SERVER_URL`).
 - Global plugin template: `plugin-global/telegram-relay`.
 
 Read `IMPLEMENTATION_PLAN.md` before major architectural changes.
@@ -59,7 +59,10 @@ Optional:
 
 - `BOT_TRANSPORT` (`polling` default, `webhook` accepted but not implemented in runtime)
 - `DATA_DIR` (`./data` default)
-- `OPENCODE_COMMAND` (`opencode` default)
+- `OPENCODE_SERVER_URL` (`http://127.0.0.1:4096` default)
+- `OPENCODE_SERVER_USERNAME` (`opencode` default)
+- `OPENCODE_SERVER_PASSWORD` (optional)
+- `DEFAULT_SESSION_ID` (optional)
 - `OPENCODE_TIMEOUT_MS` (`120000` default)
 
 ## Directory Guide
@@ -67,7 +70,7 @@ Optional:
 - `src/bot`: Telegram bot setup, middleware, commands.
 - `src/auth`: authorization service.
 - `src/store`: JSON storage and schema guards.
-- `src/opencode`: OpenCode command client and session/queue logic.
+- `src/opencode`: OpenCode HTTP client and session/queue logic.
 - `src/resolver`: username best-effort resolver.
 - `src/relay`: direct Telegram sending utility.
 - `setup`: interactive installer + preflight + file writers.
