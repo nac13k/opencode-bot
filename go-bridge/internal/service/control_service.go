@@ -15,10 +15,12 @@ type AccessList struct {
 }
 
 type ControlService struct {
-	authz    ports.AuthzRepository
-	sessions *SessionLinkService
-	models   ports.SessionModelRepository
-	opencode *opencode.Client
+	authz      ports.AuthzRepository
+	sessions   *SessionLinkService
+	models     ports.SessionModelRepository
+	opencode   *opencode.Client
+	listLimit  int
+	listSource string
 }
 
 func NewControlService(
@@ -26,8 +28,17 @@ func NewControlService(
 	sessions *SessionLinkService,
 	models ports.SessionModelRepository,
 	opencodeClient *opencode.Client,
+	sessionsListLimit int,
+	sessionsSource string,
 ) *ControlService {
-	return &ControlService{authz: authz, sessions: sessions, models: models, opencode: opencodeClient}
+	if sessionsListLimit <= 0 {
+		sessionsListLimit = 5
+	}
+	resolvedSource := strings.ToLower(strings.TrimSpace(sessionsSource))
+	if resolvedSource == "" {
+		resolvedSource = "both"
+	}
+	return &ControlService{authz: authz, sessions: sessions, models: models, opencode: opencodeClient, listLimit: sessionsListLimit, listSource: resolvedSource}
 }
 
 func (s *ControlService) Status(ctx context.Context, chatID int64, userID int64) (opencode.StatusReport, error) {
@@ -42,12 +53,12 @@ func (s *ControlService) SessionCurrent(ctx context.Context, chatID int64, userI
 	return s.sessions.GetSession(ctx, chatID, userID)
 }
 
-func (s *ControlService) SessionList(ctx context.Context, chatID int64, userID int64, limit int) ([]opencode.SessionSummary, error) {
+func (s *ControlService) SessionList(ctx context.Context, chatID int64, userID int64) ([]opencode.SessionSummary, error) {
 	current, err := s.sessions.GetSession(ctx, chatID, userID)
 	if err != nil {
 		return nil, err
 	}
-	return s.opencode.ListSessionsWithCurrent(ctx, current, limit)
+	return s.opencode.ListSessionsWithCurrent(ctx, current, s.listLimit, s.listSource)
 }
 
 func (s *ControlService) SessionUse(ctx context.Context, chatID int64, userID int64, sessionID string) error {

@@ -4,6 +4,7 @@ struct SettingsView: View {
   @ObservedObject var serviceManager: ServiceManager
   @State private var newAdminId = ""
   @State private var newAllowedId = ""
+  @State private var commandsExpanded = false
 
   var body: some View {
     ScrollView {
@@ -63,6 +64,7 @@ struct SettingsView: View {
 
             labeledField("Webhook URL", placeholder: "https://your.domain/telegram/webhook", text: $serviceManager.webhookUrl)
             labeledField("Webhook listen", placeholder: ":8090", text: $serviceManager.webhookListenAddr)
+            labeledNumberField("Polling interval (s)", value: $serviceManager.botPollingIntervalSeconds)
             labeledField("Data directory", placeholder: "./data", text: $serviceManager.dataDir)
 
             Divider()
@@ -73,9 +75,38 @@ struct SettingsView: View {
             labeledField("Server URL", placeholder: "http://127.0.0.1:4096", text: $serviceManager.opencodeServerUrl)
             labeledField("Username", placeholder: "opencode", text: $serviceManager.opencodeServerUsername)
             labeledSecureField("Password", placeholder: "Optional", text: $serviceManager.opencodeServerPassword)
+            labeledField("Binary path", placeholder: "/opt/homebrew/bin/opencode", text: $serviceManager.opencodeBinaryPath)
+            labeledField("CLI workdir", placeholder: "/path/proyecto", text: $serviceManager.opencodeCLIWorkDir)
             labeledField("Default session", placeholder: "ses_...", text: $serviceManager.defaultSessionId)
             labeledNumberField("Timeout (ms)", value: $serviceManager.opencodeTimeoutMs)
-            labeledNumberField("Health port", value: $serviceManager.healthPort)
+            HStack {
+              Text("OpenCode status")
+                .frame(width: 170, alignment: .leading)
+              Text(serviceManager.openCodeStatusText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+              Spacer()
+            }
+            HStack {
+              Text("")
+                .frame(width: 170, alignment: .leading)
+              Button("Check") { serviceManager.checkOpenCodeServer() }
+              Button("Start OpenCode") { serviceManager.startOpenCodeServer() }
+              Button("Stop OpenCode") { serviceManager.stopOpenCodeServer() }
+                .disabled(!serviceManager.openCodeManagedRunning)
+              Spacer()
+            }
+
+            Divider()
+
+            Text("Control API")
+              .font(.subheadline)
+              .bold()
+            Toggle("Enable web server (TCP)", isOn: $serviceManager.controlWebServer)
+            labeledField("Unix socket path", placeholder: "/tmp/opencode-bot.sock", text: $serviceManager.controlSocketPath)
+            if serviceManager.controlWebServer {
+              labeledNumberField("Health/control port", value: $serviceManager.healthPort)
+            }
 
             Divider()
 
@@ -93,6 +124,25 @@ struct SettingsView: View {
             }
             Toggle("Fallback (solo para final)", isOn: $serviceManager.relayFallback)
             labeledNumberField("Fallback delay (ms)", value: $serviceManager.relayFallbackDelayMs)
+            Toggle("Enable SSE relay (async)", isOn: $serviceManager.relaySSEEnabled)
+
+            Divider()
+
+            Text("Sessions Command")
+              .font(.subheadline)
+              .bold()
+            labeledNumberField("/sessions limit", value: $serviceManager.sessionsListLimit)
+            HStack {
+              Text("/sessions source")
+                .frame(width: 170, alignment: .leading)
+              Picker("Sessions source", selection: $serviceManager.sessionsSource) {
+                Text("endpoint").tag(SessionsSource.endpoint)
+                Text("cli").tag(SessionsSource.cli)
+                Text("both").tag(SessionsSource.both)
+              }
+              .pickerStyle(.segmented)
+            }
+            Toggle("/sessions include ID list", isOn: $serviceManager.sessionsShowIDList)
 
             HStack {
               Button("Save") { serviceManager.saveConfig() }
@@ -126,8 +176,9 @@ struct SettingsView: View {
           .padding(.vertical, 2)
         }
 
-        GroupBox("Comandos y Interaccion") {
-          VStack(alignment: .leading, spacing: 10) {
+        GroupBox {
+          DisclosureGroup("Comandos y Interaccion", isExpanded: $commandsExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
             Text("Estos botones ejecutan los endpoints locales del bridge y muestran respuesta completa JSON.")
               .font(.caption)
               .foregroundStyle(.secondary)
@@ -203,8 +254,10 @@ struct SettingsView: View {
             .frame(minHeight: 220)
             .background(Color.black.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .padding(.top, 8)
+            .padding(.bottom, 4)
           }
-          .padding(.vertical, 4)
         }
 
         GroupBox("Logs") {

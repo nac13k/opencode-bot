@@ -14,13 +14,22 @@ import (
 )
 
 type API struct {
-	botToken string
-	client   *http.Client
+	botToken        string
+	client          *http.Client
+	pollingInterval time.Duration
 }
 
 type Update struct {
-	UpdateID int64    `json:"update_id"`
-	Message  *Message `json:"message,omitempty"`
+	UpdateID      int64          `json:"update_id"`
+	Message       *Message       `json:"message,omitempty"`
+	CallbackQuery *CallbackQuery `json:"callback_query,omitempty"`
+}
+
+type CallbackQuery struct {
+	ID      string   `json:"id"`
+	From    User     `json:"from"`
+	Message *Message `json:"message,omitempty"`
+	Data    string   `json:"data"`
 }
 
 type Message struct {
@@ -39,8 +48,20 @@ type Chat struct {
 	ID int64 `json:"id"`
 }
 
-func NewAPI(botToken string, timeout time.Duration) *API {
-	return &API{botToken: botToken, client: &http.Client{Timeout: timeout}}
+type InlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data"`
+}
+
+type InlineKeyboardMarkup struct {
+	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
+}
+
+func NewAPI(botToken string, timeout time.Duration, pollingInterval time.Duration) *API {
+	if pollingInterval <= 0 {
+		pollingInterval = 2 * time.Second
+	}
+	return &API{botToken: botToken, client: &http.Client{Timeout: timeout}, pollingInterval: pollingInterval}
 }
 
 func (a *API) SendMessage(ctx context.Context, chatID int64, text string) error {
@@ -49,8 +70,37 @@ func (a *API) SendMessage(ctx context.Context, chatID int64, text string) error 
 	return err
 }
 
+func (a *API) SendChatAction(ctx context.Context, chatID int64, action string) error {
+	body := map[string]any{"chat_id": chatID, "action": action}
+	_, err := a.request(ctx, http.MethodPost, "sendChatAction", body)
+	return err
+}
+
+func (a *API) SendMessageWithInlineKeyboard(ctx context.Context, chatID int64, text string, rows [][]InlineKeyboardButton) error {
+	body := map[string]any{
+		"chat_id": chatID,
+		"text":    text,
+		"reply_markup": InlineKeyboardMarkup{
+			InlineKeyboard: rows,
+		},
+	}
+	_, err := a.request(ctx, http.MethodPost, "sendMessage", body)
+	return err
+}
+
+func (a *API) AnswerCallbackQuery(ctx context.Context, callbackQueryID string, text string) error {
+	body := map[string]any{
+		"callback_query_id": callbackQueryID,
+		"text":              text,
+		"show_alert":        false,
+	}
+	_, err := a.request(ctx, http.MethodPost, "answerCallbackQuery", body)
+	return err
+}
+
 func (a *API) PollUpdates(ctx context.Context, handler func(context.Context, Update)) error {
 	var offset int64
+	workers := make(chan struct{}, 8)
 	for {
 		select {
 		case <-ctx.Done():
@@ -67,10 +117,23 @@ func (a *API) PollUpdates(ctx context.Context, handler func(context.Context, Upd
 		}
 
 		for _, update := range updates {
+			current := update
 			if update.UpdateID >= offset {
 				offset = update.UpdateID + 1
 			}
-			handler(ctx, update)
+			workers <- struct{}{}
+			go func(u Update) {
+				defer func() { <-workers }()
+				handler(ctx, u)
+			}(current)
+		}
+
+		if len(updates) == 0 {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(a.pollingInterval):
+			}
 		}
 	}
 }
@@ -104,8 +167,8 @@ func (a *API) WebhookPath(webhookURL string) string {
 func (a *API) getUpdates(ctx context.Context, offset int64) ([]Update, error) {
 	body := map[string]any{
 		"offset":          offset,
-		"timeout":         30,
-		"allowed_updates": []string{"message"},
+		"timeout":         longPollSeconds(a.pollingInterval),
+		"allowed_updates": []string{"message", "callback_query"},
 	}
 	raw, err := a.request(ctx, http.MethodPost, "getUpdates", body)
 	if err != nil {
@@ -123,6 +186,17 @@ func (a *API) getUpdates(ctx context.Context, offset int64) ([]Update, error) {
 		return nil, fmt.Errorf("telegram getUpdates failed")
 	}
 	return payload.Result, nil
+}
+
+func longPollSeconds(interval time.Duration) int {
+	seconds := int(interval / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	if seconds > 50 {
+		seconds = 50
+	}
+	return seconds
 }
 
 func (a *API) ParseWebhookUpdate(body []byte) (Update, error) {

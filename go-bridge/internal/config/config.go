@@ -17,16 +17,25 @@ type Config struct {
 	BotTransport         string
 	WebhookURL           string
 	WebhookListenAddr    string
+	BotPollingIntervalS  int
 	DataDir              string
 	DatabasePath         string
 	OpenCodeServerURL    string
 	OpenCodeServerUser   string
 	OpenCodeServerPass   string
+	OpenCodeBinary       string
+	OpenCodeCLIWorkDir   string
 	DefaultSessionID     string
 	OpenCodeTimeout      time.Duration
 	RelayMode            string
 	RelayFallback        bool
 	RelayFallbackDelayMs int
+	RelaySSEEnabled      bool
+	SessionsListLimit    int
+	SessionsSource       string
+	SessionsShowIDList   bool
+	ControlWebServer     bool
+	ControlSocketPath    string
 	HealthPort           int
 	LogLevel             string
 	LogFilePath          string
@@ -64,6 +73,26 @@ func LoadFromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	relaySSEEnabled, err := parseBoolWithDefault("RELAY_SSE_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	controlWebServer, err := parseBoolWithDefault("CONTROL_WEB_SERVER", false)
+	if err != nil {
+		return Config{}, err
+	}
+	pollingIntervalS, err := parseIntWithDefault("BOT_POLLING_INTERVAL_SECONDS", 2)
+	if err != nil {
+		return Config{}, err
+	}
+	sessionsListLimit, err := parseIntWithDefault("SESSIONS_LIST_LIMIT", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	sessionsShowIDList, err := parseBoolWithDefault("SESSIONS_SHOW_ID_LIST", true)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		BotToken:             botToken,
@@ -72,16 +101,25 @@ func LoadFromEnv() (Config, error) {
 		BotTransport:         defaultString(os.Getenv("BOT_TRANSPORT"), "polling"),
 		WebhookURL:           strings.TrimSpace(os.Getenv("WEBHOOK_URL")),
 		WebhookListenAddr:    defaultString(strings.TrimSpace(os.Getenv("WEBHOOK_LISTEN_ADDR")), ":8090"),
+		BotPollingIntervalS:  pollingIntervalS,
 		DataDir:              dataDir,
 		DatabasePath:         filepath.Join(dataDir, "bridge.db"),
 		OpenCodeServerURL:    defaultString(os.Getenv("OPENCODE_SERVER_URL"), "http://127.0.0.1:4096"),
 		OpenCodeServerUser:   defaultString(os.Getenv("OPENCODE_SERVER_USERNAME"), "opencode"),
 		OpenCodeServerPass:   strings.TrimSpace(os.Getenv("OPENCODE_SERVER_PASSWORD")),
+		OpenCodeBinary:       defaultString(strings.TrimSpace(os.Getenv("OPENCODE_BINARY")), "opencode"),
+		OpenCodeCLIWorkDir:   strings.TrimSpace(os.Getenv("OPENCODE_CLI_WORKDIR")),
 		DefaultSessionID:     strings.TrimSpace(os.Getenv("DEFAULT_SESSION_ID")),
 		OpenCodeTimeout:      time.Duration(openCodeTimeoutMs) * time.Millisecond,
 		RelayMode:            defaultString(strings.TrimSpace(os.Getenv("RELAY_MODE")), "last"),
 		RelayFallback:        relayFallback,
 		RelayFallbackDelayMs: relayFallbackDelay,
+		RelaySSEEnabled:      relaySSEEnabled,
+		SessionsListLimit:    sessionsListLimit,
+		SessionsSource:       defaultString(strings.TrimSpace(os.Getenv("SESSIONS_SOURCE")), "both"),
+		SessionsShowIDList:   sessionsShowIDList,
+		ControlWebServer:     controlWebServer,
+		ControlSocketPath:    defaultString(strings.TrimSpace(os.Getenv("CONTROL_SOCKET_PATH")), "/tmp/opencode-bot.sock"),
 		HealthPort:           healthPort,
 		LogLevel:             defaultString(strings.TrimSpace(os.Getenv("LOG_LEVEL")), "info"),
 		LogFilePath:          filepath.Join(dataDir, "logs", "bridge.log"),
@@ -119,8 +157,21 @@ func validate(cfg Config) error {
 	if cfg.RelayMode != "last" && cfg.RelayMode != "final" {
 		return fmt.Errorf("RELAY_MODE must be last or final: got %q", cfg.RelayMode)
 	}
-	if cfg.HealthPort <= 0 {
+	if cfg.BotPollingIntervalS <= 0 {
+		return fmt.Errorf("BOT_POLLING_INTERVAL_SECONDS must be > 0: got %d", cfg.BotPollingIntervalS)
+	}
+	if cfg.SessionsListLimit <= 0 {
+		return fmt.Errorf("SESSIONS_LIST_LIMIT must be > 0: got %d", cfg.SessionsListLimit)
+	}
+	if cfg.SessionsSource != "endpoint" && cfg.SessionsSource != "cli" && cfg.SessionsSource != "both" {
+		return fmt.Errorf("SESSIONS_SOURCE must be endpoint|cli|both: got %q", cfg.SessionsSource)
+	}
+
+	if cfg.ControlWebServer && cfg.HealthPort <= 0 {
 		return fmt.Errorf("HEALTH_PORT must be > 0: got %d", cfg.HealthPort)
+	}
+	if !cfg.ControlWebServer && strings.TrimSpace(cfg.ControlSocketPath) == "" {
+		return errors.New("CONTROL_SOCKET_PATH is required when CONTROL_WEB_SERVER=false")
 	}
 	return nil
 }

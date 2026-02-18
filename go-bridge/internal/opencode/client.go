@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,9 +22,16 @@ type Client struct {
 	baseURL  string
 	username string
 	password string
+	binary   string
+	cliDir   string
 	timeout  time.Duration
 	http     *http.Client
+	stream   *http.Client
 }
+
+var sessionIDRegex = regexp.MustCompile(`ses_[A-Za-z0-9]+`)
+var sessionColumnsRegex = regexp.MustCompile(`\s{2,}`)
+var cliUpdatedAtSuffixRegex = regexp.MustCompile(`(?i)\d{1,2}:\d{2}\s*(?:am|pm)(?:\s*·\s*\d{1,2}/\d{1,2}/\d{4})?$`)
 
 type Event struct {
 	Type      string
@@ -49,13 +58,21 @@ type ModelInfo struct {
 	Favorite bool
 }
 
+type AssistantSnapshot struct {
+	Count int
+	Last  string
+}
+
 func NewClient(cfg config.Config) *Client {
 	return &Client{
 		baseURL:  strings.TrimRight(cfg.OpenCodeServerURL, "/"),
 		username: cfg.OpenCodeServerUser,
 		password: cfg.OpenCodeServerPass,
+		binary:   cfg.OpenCodeBinary,
+		cliDir:   cfg.OpenCodeCLIWorkDir,
 		timeout:  cfg.OpenCodeTimeout,
 		http:     &http.Client{Timeout: cfg.OpenCodeTimeout},
+		stream:   &http.Client{},
 	}
 }
 
@@ -119,29 +136,73 @@ func (c *Client) CreateSession(ctx context.Context) (string, error) {
 }
 
 func (c *Client) GetLastAssistantMessage(ctx context.Context, sessionID string) (string, error) {
-	raw, err := c.request(ctx, http.MethodGet, "/session/"+sessionID+"/message", nil)
+	snapshot, err := c.GetAssistantSnapshot(ctx, sessionID)
 	if err != nil {
 		return "", err
+	}
+	return snapshot.Last, nil
+}
+
+func (c *Client) GetAssistantSnapshot(ctx context.Context, sessionID string) (AssistantSnapshot, error) {
+	raw, err := c.request(ctx, http.MethodGet, "/session/"+sessionID+"/message", nil)
+	if err != nil {
+		return AssistantSnapshot{}, err
 	}
 
 	var messages []map[string]any
 	if err := json.Unmarshal(raw, &messages); err != nil {
-		return "", err
+		return AssistantSnapshot{}, err
 	}
 
+	count := 0
+	last := ""
+	fallback := ""
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]
 		role, _ := message["role"].(string)
-		if role != "assistant" {
+		text := extractText(message)
+		if fallback == "" && strings.TrimSpace(text) != "" && !isUserRole(role) {
+			fallback = strings.TrimSpace(text)
+		}
+		if !isAssistantRole(role) {
 			continue
 		}
-		text := extractText(message)
-		if strings.TrimSpace(text) != "" {
-			return strings.TrimSpace(text), nil
+		count++
+		if last == "" && strings.TrimSpace(text) != "" {
+			last = strings.TrimSpace(text)
 		}
 	}
+	if last == "" {
+		last = fallback
+	}
 
-	return "", nil
+	return AssistantSnapshot{Count: count, Last: last}, nil
+}
+
+func (c *Client) WaitForAssistantMessage(ctx context.Context, sessionID string, previous AssistantSnapshot, interval time.Duration) (string, error) {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+
+	for {
+		now, err := c.GetAssistantSnapshot(ctx, sessionID)
+		if err != nil {
+			return "", err
+		}
+
+		if now.Count > previous.Count && strings.TrimSpace(now.Last) != "" {
+			return strings.TrimSpace(now.Last), nil
+		}
+		if strings.TrimSpace(now.Last) != "" && strings.TrimSpace(now.Last) != strings.TrimSpace(previous.Last) {
+			return strings.TrimSpace(now.Last), nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(interval):
+		}
+	}
 }
 
 func (c *Client) CompactSession(ctx context.Context, sessionID string) error {
@@ -184,10 +245,65 @@ func (c *Client) GetStatus(ctx context.Context, sessionID string) (StatusReport,
 	return StatusReport{SessionID: sessionID, Status: status, Model: model}, nil
 }
 
-func (c *Client) ListSessionsWithCurrent(ctx context.Context, currentSessionID string, limit int) ([]SessionSummary, error) {
-	sessions, err := c.listSessions(ctx)
+func (c *Client) GetSessionState(ctx context.Context, sessionID string) (string, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return "unknown", nil
+	}
+	raw, err := c.request(ctx, http.MethodGet, "/session/status", nil)
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+	var statusMap map[string]map[string]any
+	if err := json.Unmarshal(raw, &statusMap); err != nil {
+		return "", err
+	}
+	item, ok := statusMap[sessionID]
+	if !ok {
+		return "unknown", nil
+	}
+	status := firstString(item, "type", "status", "state")
+	if status == "" {
+		status = "unknown"
+	}
+	return strings.ToLower(strings.TrimSpace(status)), nil
+}
+
+func (c *Client) ListSessionsWithCurrent(ctx context.Context, currentSessionID string, limit int, source string) ([]SessionSummary, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	resolvedSource := strings.ToLower(strings.TrimSpace(source))
+	if resolvedSource == "" {
+		resolvedSource = "both"
+	}
+
+	sessions := make([]SessionSummary, 0)
+	if resolvedSource == "endpoint" || resolvedSource == "both" {
+		fromEndpoint, err := c.listSessions(ctx, maxInt(limit*4, 20))
+		if err != nil && resolvedSource == "endpoint" {
+			return nil, err
+		}
+		sessions = append(sessions, fromEndpoint...)
+	}
+
+	if resolvedSource == "cli" || resolvedSource == "both" {
+		fromCLI, cliErr := c.listSessionsFromCLI(ctx)
+		if cliErr != nil && resolvedSource == "cli" {
+			return nil, cliErr
+		}
+		if cliErr == nil && len(fromCLI) > 0 {
+			existing := make(map[string]struct{}, len(sessions))
+			for _, item := range sessions {
+				existing[item.ID] = struct{}{}
+			}
+			for _, cliItem := range fromCLI {
+				if _, ok := existing[cliItem.ID]; ok {
+					continue
+				}
+				sessions = append(sessions, cliItem)
+				existing[cliItem.ID] = struct{}{}
+			}
+		}
 	}
 
 	if currentSessionID != "" {
@@ -212,13 +328,60 @@ func (c *Client) ListSessionsWithCurrent(ctx context.Context, currentSessionID s
 	sort.Slice(sessions, func(i, j int) bool {
 		return parseTimestamp(sessions[i].Updated) > parseTimestamp(sessions[j].Updated)
 	})
-	if limit <= 0 {
-		limit = 5
-	}
 	if len(sessions) > limit {
 		sessions = sessions[:limit]
 	}
 	return sessions, nil
+}
+
+func (c *Client) listSessionsFromCLI(ctx context.Context) ([]SessionSummary, error) {
+	if strings.TrimSpace(c.binary) == "" {
+		return nil, fmt.Errorf("opencode binary is empty")
+	}
+
+	cmdCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, c.binary, "session", "list")
+	if strings.TrimSpace(c.cliDir) != "" {
+		cmd.Dir = strings.TrimSpace(c.cliDir)
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n")
+	rows := make([]SessionSummary, 0)
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "Session ID") || strings.HasPrefix(line, "─") {
+			continue
+		}
+		sessionID := firstColumn(line)
+		if !sessionIDRegex.MatchString(sessionID) {
+			continue
+		}
+		title, updated := parseCLISessionTitleAndUpdated(line, sessionID)
+		rows = append(rows, SessionSummary{ID: sessionID, Title: title, Updated: updated})
+	}
+
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{}, len(rows))
+	unique := make([]SessionSummary, 0, len(rows))
+	for _, item := range rows {
+		if item.ID == "" {
+			continue
+		}
+		if _, ok := seen[item.ID]; ok {
+			continue
+		}
+		seen[item.ID] = struct{}{}
+		unique = append(unique, item)
+	}
+	return unique, nil
 }
 
 func (c *Client) ListFavoriteModels(ctx context.Context) ([]ModelInfo, error) {
@@ -247,8 +410,11 @@ func (c *Client) ListFavoriteModels(ctx context.Context) ([]ModelInfo, error) {
 	return extractFavoriteModelsFromProviders(providersPayload), nil
 }
 
-func (c *Client) listSessions(ctx context.Context) ([]SessionSummary, error) {
-	raw, err := c.request(ctx, http.MethodGet, "/session", nil)
+func (c *Client) listSessions(ctx context.Context, limit int) ([]SessionSummary, error) {
+	raw, err := c.request(ctx, http.MethodGet, fmt.Sprintf("/session?limit=%d", maxInt(limit, 20)), nil)
+	if err != nil {
+		raw, err = c.request(ctx, http.MethodGet, "/session", nil)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -267,6 +433,13 @@ func (c *Client) listSessions(ctx context.Context) ([]SessionSummary, error) {
 	return out, nil
 }
 
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (c *Client) StreamEvents(ctx context.Context) (<-chan Event, <-chan error) {
 	events := make(chan Event)
 	errs := make(chan error, 1)
@@ -283,7 +456,7 @@ func (c *Client) StreamEvents(ctx context.Context) (<-chan Event, <-chan error) 
 		req.SetBasicAuth(c.username, c.password)
 		req.Header.Set("Accept", "text/event-stream")
 
-		res, err := c.http.Do(req)
+		res, err := c.stream.Do(req)
 		if err != nil {
 			errs <- err
 			return
@@ -454,7 +627,10 @@ func sessionToSummary(raw map[string]any) SessionSummary {
 	}
 	updated := ""
 	if timeData, ok := raw["time"].(map[string]any); ok {
-		updated = firstString(timeData, "updated")
+		updated = normalizeTimestampValue(timeData["updated"])
+		if updated == "" {
+			updated = normalizeTimestampValue(timeData["created"])
+		}
 	}
 	return SessionSummary{ID: id, Title: title, Updated: updated}
 }
@@ -485,17 +661,120 @@ func sessionModel(session map[string]any) string {
 }
 
 func parseTimestamp(value string) int64 {
-	if strings.TrimSpace(value) == "" {
+	trimmed := normalizeUpdatedText(value)
+	if trimmed == "" {
 		return 0
 	}
-	if unixMs, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return unixMs
+	if unixRaw, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		return normalizeUnixMillis(unixRaw)
 	}
-	t, err := time.Parse(time.RFC3339, value)
+	if parsed, err := time.Parse("3:04 PM", trimmed); err == nil {
+		now := time.Now()
+		withToday := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, now.Location())
+		return withToday.UnixMilli()
+	}
+	if parsed, err := time.Parse("3:04 PM · 1/2/2006", trimmed); err == nil {
+		return parsed.UnixMilli()
+	}
+	if unixFloat, err := strconv.ParseFloat(trimmed, 64); err == nil {
+		return normalizeUnixMillis(int64(unixFloat))
+	}
+	t, err := time.Parse(time.RFC3339, trimmed)
 	if err != nil {
 		return 0
 	}
 	return t.UnixMilli()
+}
+
+func firstColumn(line string) string {
+	parts := sessionColumnsRegex.Split(strings.TrimSpace(line), 2)
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
+}
+
+func parseCLISessionTitleAndUpdated(line string, sessionID string) (string, string) {
+	remainder := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), sessionID))
+	if remainder == "" {
+		return "(untitled)", ""
+	}
+
+	updated := ""
+	if loc := cliUpdatedAtSuffixRegex.FindStringIndex(remainder); loc != nil && loc[1] == len(remainder) {
+		updated = normalizeUpdatedText(remainder[loc[0]:loc[1]])
+		remainder = strings.TrimSpace(remainder[:loc[0]])
+	}
+
+	title := strings.TrimSpace(remainder)
+	if title == "" {
+		title = "(untitled)"
+	}
+	return title, updated
+}
+
+func normalizeUpdatedText(value string) string {
+	trimmed := strings.TrimSpace(value)
+	trimmed = strings.Join(strings.Fields(trimmed), " ")
+	trimmed = strings.ReplaceAll(trimmed, "•", "·")
+	trimmed = strings.ReplaceAll(trimmed, " ·", " · ")
+	trimmed = strings.ReplaceAll(trimmed, "· ", " · ")
+	if strings.Contains(trimmed, " · ") {
+		parts := strings.SplitN(trimmed, " · ", 2)
+		if len(parts) == 2 {
+			trimmed = strings.ToUpper(parts[0]) + " · " + parts[1]
+		}
+	} else {
+		trimmed = strings.ToUpper(trimmed)
+	}
+	return trimmed
+}
+
+func normalizeUnixMillis(raw int64) int64 {
+	abs := raw
+	if abs < 0 {
+		abs = -abs
+	}
+	switch {
+	case abs < 1_000_000_000_0:
+		return raw * 1000
+	case abs > 9_999_999_999_999_999:
+		return raw / 1_000_000
+	case abs > 9_999_999_999_999:
+		return raw / 1000
+	default:
+		return raw
+	}
+}
+
+func normalizeTimestampValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return strconv.FormatInt(int64(v), 10)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int:
+		return strconv.FormatInt(int64(v), 10)
+	case json.Number:
+		return v.String()
+	default:
+		return ""
+	}
+}
+
+func isAssistantRole(role string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(role))
+	if trimmed == "assistant" {
+		return true
+	}
+	return strings.Contains(trimmed, "assistant")
+}
+
+func isUserRole(role string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(role))
+	return trimmed == "user"
 }
 
 func extractFavoriteModelsFromConfig(payload map[string]any) []ModelInfo {

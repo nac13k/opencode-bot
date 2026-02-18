@@ -57,23 +57,42 @@ func NewRelayService(
 }
 
 func (s *RelayService) Run(ctx context.Context) error {
-	events, errs := s.opencode.StreamEvents(ctx)
 	for {
+		events, errs := s.opencode.StreamEvents(ctx)
+		retry := false
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case err, ok := <-errs:
+				if !ok {
+					retry = true
+					break
+				}
+				if err != nil {
+					s.logger.Warn("relay stream error; retrying", "error", err)
+					retry = true
+					break
+				}
+			case event, ok := <-events:
+				if !ok {
+					retry = true
+					break
+				}
+				s.handleEvent(ctx, event)
+			}
+
+			if retry {
+				break
+			}
+		}
+
+		timer := time.NewTimer(3 * time.Second)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return nil
-		case err, ok := <-errs:
-			if !ok {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-		case event, ok := <-events:
-			if !ok {
-				return nil
-			}
-			s.handleEvent(ctx, event)
+		case <-timer.C:
 		}
 	}
 }

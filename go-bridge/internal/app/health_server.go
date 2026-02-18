@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -149,7 +152,7 @@ func (s *HealthServer) commandSessionListHandler(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	list, err := s.controlSvc.SessionList(r.Context(), chatID, userID, 5)
+	list, err := s.controlSvc.SessionList(r.Context(), chatID, userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -374,7 +377,31 @@ func (s *HealthServer) writeJSON(w http.ResponseWriter, status int, payload any)
 }
 
 func (s *HealthServer) ListenAndServe() error {
-	return s.httpServer.ListenAndServe()
+	if s.cfg.ControlWebServer {
+		return s.httpServer.ListenAndServe()
+	}
+
+	socketPath := s.cfg.ControlSocketPath
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.Remove(socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return err
+	}
+	if chmodErr := os.Chmod(socketPath, 0o600); chmodErr != nil {
+		listener.Close()
+		return chmodErr
+	}
+	defer func() {
+		listener.Close()
+		_ = os.Remove(socketPath)
+	}()
+
+	return s.httpServer.Serve(listener)
 }
 
 func (s *HealthServer) Shutdown(ctx context.Context) error {

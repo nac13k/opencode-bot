@@ -114,7 +114,14 @@ func (s *SQLiteStore) UpsertAllowed(ctx context.Context, userID int64) error {
 func (s *SQLiteStore) IsAllowed(ctx context.Context, userID int64) (bool, error) {
 	var found int
 	err := s.db.QueryRowContext(ctx, `
-		SELECT 1 FROM allowed_users WHERE telegram_user_id = ? LIMIT 1;
+		SELECT 1
+		FROM (
+			SELECT telegram_user_id FROM allowed_users
+			UNION
+			SELECT telegram_user_id FROM admins
+		)
+		WHERE telegram_user_id = ?
+		LIMIT 1;
 	`, userID).Scan(&found)
 	if err == nil {
 		return true, nil

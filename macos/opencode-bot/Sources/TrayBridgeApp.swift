@@ -6,7 +6,7 @@ struct OpencodeBotApp: App {
   @StateObject private var serviceManager = ServiceManager()
 
   init() {
-    NSApplication.shared.setActivationPolicy(.accessory)
+    NSApplication.shared.setActivationPolicy(.regular)
   }
 
   var body: some Scene {
