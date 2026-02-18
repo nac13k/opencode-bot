@@ -28,6 +28,8 @@ This plan captures the agreed migration path from Node to Go, keeping the Swift 
 - `OPENCODE_SERVER_URL`
 - `OPENCODE_SERVER_USERNAME`
 - `OPENCODE_SERVER_PASSWORD`
+- `OPENCODE_BINARY`
+- `OPENCODE_CLI_WORKDIR`
 - `DEFAULT_SESSION_ID`
 - `OPENCODE_TIMEOUT_MS`
 - `RELAY_MODE` (`last` | `final`)
@@ -115,7 +117,9 @@ Final detection strategy:
 ## Go Binary CLI
 
 - `bridge --migrate` (create/update DB)
+- `bridge import-json` (import legacy JSON files into SQLite)
 - `bridge resolve --usernames @a,@b` (batch resolve)
+- `bridge bootstrap --env-file .env` (write env template from effective config)
 - `bridge serve` (default run)
 
 ## Health Endpoint

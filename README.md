@@ -1,111 +1,92 @@
-# OpenCode Telegram Bridge (MVP)
+# opencode-bot
 
-Telegram bot that gates access by `telegramUserId`, forwards prompts to OpenCode, and relays final answers through a global OpenCode plugin.
+Go Telegram bridge for OpenCode with a macOS tray app.
 
-## Installation
+## Architecture
 
-1. Install dependencies:
+- `go-bridge`: main runtime (Telegram bot, OpenCode client, control API, SQLite).
+- `macos/opencode-bot`: Swift tray app to configure and run the bundled bridge.
+- Control API defaults to Unix socket (`/tmp/opencode-bot.sock`) and can run on TCP when enabled.
 
-```bash
-npm install
-```
+See `GO_MIGRATION_PLAN.md` for full design.
 
-2. Run typecheck/build once:
-
-```bash
-npm run typecheck
-npm run build
-```
-
-## Configuration
-
-Choose one setup mode.
-
-### Option A: CLI installer (recommended)
-
-```bash
-npm run setup
-```
-
-The installer validates Telegram/OpenCode access and writes:
-
-- `.env` in project root
-- JSON data files under `DATA_DIR` (default `./data`)
-- global plugin files in `~/.config/opencode/plugin/telegram-relay/`
-
-### Option B: Manual `.env`
-
-Create `.env` with:
+## Required env
 
 ```env
 BOT_TOKEN=<telegram-bot-token>
 ADMIN_USER_IDS=<comma-separated-user-ids>
-ALLOWED_USER_IDS=<comma-separated-user-ids>
+```
+
+Common optional env:
+
+```env
+ALLOWED_USER_IDS=
 BOT_TRANSPORT=polling
+WEBHOOK_URL=
+WEBHOOK_LISTEN_ADDR=:8090
+BOT_POLLING_INTERVAL_SECONDS=2
+
 DATA_DIR=./data
-OPENCODE_TIMEOUT_MS=120000
 OPENCODE_SERVER_URL=http://127.0.0.1:4096
 OPENCODE_SERVER_USERNAME=opencode
-OPENCODE_SERVER_PASSWORD=<optional>
-DEFAULT_SESSION_ID=<optional>
-HEALTH_PORT=4097
+OPENCODE_SERVER_PASSWORD=
+OPENCODE_BINARY=opencode
+OPENCODE_CLI_WORKDIR=
+DEFAULT_SESSION_ID=
+OPENCODE_TIMEOUT_MS=120000
+
 RELAY_MODE=last
 RELAY_FALLBACK=true
 RELAY_FALLBACK_DELAY_MS=3000
+RELAY_SSE_ENABLED=false
+
+SESSIONS_LIST_LIMIT=5
+SESSIONS_SOURCE=both
+SESSIONS_SHOW_ID_LIST=true
+
+CONTROL_WEB_SERVER=false
+CONTROL_SOCKET_PATH=/tmp/opencode-bot.sock
+HEALTH_PORT=4097
 ```
 
-## Run
-
-Start the bot:
+## Run bridge locally
 
 ```bash
-npm run dev
+cd go-bridge
+go test ./...
+go run ./cmd/bridge --migrate
+go run ./cmd/bridge serve
 ```
 
-Or production mode:
+## Go CLI commands
 
-```bash
-npm run build
-npm start
-```
+- `go run ./cmd/bridge serve`
+- `go run ./cmd/bridge --migrate`
+- `go run ./cmd/bridge import-json`
+- `go run ./cmd/bridge resolve --usernames @a,@b`
+- `go run ./cmd/bridge bootstrap --env-file .env`
 
-## Admin Commands
+## Telegram commands
 
+- `/start`
 - `/status`
-- `/resolve @username` (best-effort helper only)
+- `/session` / `/sessions`
+- `/models`
+- `/compact`
+- `/allow` `/deny` `/list` (admin only)
 
-## Session Selector
+## Legacy JSON migration
 
-- `/session` show current linked OpenCode session
-- `/session list` list recent OpenCode sessions with interactive buttons
-- `/session use <ses_...>` switch current chat/user to an existing session
-- `/session new` clear session link and force a new one on next message
-- `/sessions` alias to list recent sessions with interactive buttons
+If you have old Node/TS JSON data under `DATA_DIR` (`admins.json`, `allowed-users.json`, `session-links.json`, `session-models.json`):
 
-## Model Selector
+```bash
+cd go-bridge
+go run ./cmd/bridge import-json
+```
 
-- `/models` list favorite models marked in OpenCode
-- Clicking a model sets it for the current chat/user session
-- Use "Quitar modelo" to clear and use OpenCode default
+`--migrate` and `serve` also attempt import automatically.
 
-## Notes
-
-- Auth is strictly by numeric `telegramUserId`.
-- Username resolution is convenience-only and never used as auth source.
-- Installer writes plugin files to `~/.config/opencode/plugin/telegram-relay/`.
-
-## macOS Tray App
-
-This repository includes a macOS menu bar app at `macos/opencode-bot`.
-
-- Menu bar icon shows running/stopped status.
-- Menu supports Start, Stop, Restart, and opening settings.
-- Settings window manages `BOT_TOKEN`, `ADMIN_USER_IDS`, `ALLOWED_USER_IDS`, transport, OpenCode server settings, and logs.
-- Settings include an interaction panel to execute bridge commands (`status`, `session`, `models`, `compact`, `allow`, `deny`, `list`, `resolve`) and inspect full JSON responses.
-- Settings are stored in a local SQLite database inside the app support directory.
-- Release builds bundle the server payload (and Node runtime) inside the app for easier install.
-- App runs only with bundled server payload (no external project-path fallback).
-- Build process generates a custom app icon and embeds app description metadata.
+## macOS tray app
 
 Run locally:
 
@@ -114,111 +95,16 @@ cd macos/opencode-bot
 swift run OpencodeBot
 ```
 
-Build a double-clickable `.app` bundle:
+Build `.app` bundle:
 
 ```bash
 bash ./scripts/build-tray-bridge.sh
 ```
 
-Or run steps manually:
+Or manually:
 
 ```bash
 bash ./macos/opencode-bot/scripts/prepare-embedded-server.sh
 bash ./macos/opencode-bot/scripts/build-app.sh
 open ./macos/opencode-bot/dist/opencode-bot.app
-```
-
-### Download and install from GitHub Releases
-
-1. Open Releases page:
-
-```text
-https://github.com/nac13k/opencode-bot/releases
-```
-
-![Release download screen](docs/images/release-download.svg)
-
-2. Download the latest file:
-
-- `opencode-bot-<version>.dmg` (recommended, self-contained)
-- `opencode-bot-<version>.app.zip`
-
-3. Unzip and move `opencode-bot.app` to `Applications`.
-
-![Install app in Applications](docs/images/app-install.svg)
-
-4. First launch:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/opencode-bot.app
-open /Applications/opencode-bot.app
-```
-
-5. In app settings, configure:
-
-- `BOT_TOKEN`
-- `ADMIN_USER_IDS`
-- optional OpenCode fields (Server URL, Username, Password, Default Session, timeout, transport)
-
-The app persists this configuration in SQLite and launches the bundled bridge service.
-
-![App configuration fields](docs/images/app-config.svg)
-
-### macOS signing and startup errors
-
-If macOS blocks startup because of signature/trust:
-
-```bash
-xattr -dr com.apple.quarantine ./macos/opencode-bot/dist/opencode-bot.app
-codesign --force --deep --sign - ./macos/opencode-bot/dist/opencode-bot.app
-open ./macos/opencode-bot/dist/opencode-bot.app
-```
-
-For distribution with a real Apple certificate:
-
-```bash
-APPLE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" bash ./macos/opencode-bot/scripts/build-app.sh
-```
-
-## CI/CD on `main`
-
-This project includes a GitHub Actions workflow at `.github/workflows/build-and-release.yml`.
-
-- Trigger: every push to `main`.
-- Security: runs `gitleaks` secret scan before build/release steps.
-- Build steps: `npm ci`, `npm run typecheck`, `npm run build`, and macOS tray app packaging.
-- Version source: `package.json` field `version`.
-- Tag: `v${version}` is created if it does not exist.
-- Publish: a GitHub Release is created/updated with build artifacts.
-
-If you want a new tag/release version, update `version` in `package.json`.
-
-## Go Migration (WIP)
-
-The Go rewrite bootstrap is under `go-bridge/` and currently includes:
-
-- SQLite migrations + seed from env
-- Rotating file logger
-- `serve` command with `GET /health`
-- `resolve --usernames` command (best-effort via Telegram `getChat`)
-- Telegram transport in `polling` and `webhook` modes
-- SSE relay from OpenCode `/event` with `RELAY_MODE` (`last`/`final`) and fallback delay
-- Bot commands in Go: `/start`, `/status`, `/session`, `/sessions`, `/compact`, `/models`, `/allow`, `/deny`, `/list`
-- Local tray-friendly endpoint: `POST /resolve` with JSON body `{ "usernames": ["@a", "@b"] }`
-
-Run locally:
-
-```bash
-cd go-bridge
-go mod tidy
-go run ./cmd/bridge --migrate
-go run ./cmd/bridge serve
-```
-
-Webhook mode requires:
-
-```env
-BOT_TRANSPORT=webhook
-WEBHOOK_URL=https://your.domain/telegram/webhook
-WEBHOOK_LISTEN_ADDR=:8090
 ```

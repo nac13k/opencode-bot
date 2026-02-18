@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 APP_NAME="OpencodeBot"
 BUNDLE_NAME="opencode-bot"
 BUILD_DIR="$ROOT_DIR/.build/debug"
@@ -14,6 +15,15 @@ PLIST_PATH="$CONTENTS_DIR/Info.plist"
 ICON_NAME="TrayBridge"
 ICON_ICNS_PATH="$RESOURCES_DIR/$ICON_NAME.icns"
 EMBEDDED_SERVER_SRC="$ROOT_DIR/embedded-server"
+VERSION_FILE="$REPO_ROOT/VERSION"
+
+APP_VERSION="1.0.0"
+if [ -f "$VERSION_FILE" ]; then
+  CANDIDATE_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+  if [ -n "$CANDIDATE_VERSION" ]; then
+    APP_VERSION="$CANDIDATE_VERSION"
+  fi
+fi
 
 generate_icon() {
   local temp_dir
@@ -115,7 +125,7 @@ if [ ! -d "$RESOURCES_DIR/server" ]; then
   exit 1
 fi
 
-cat > "$PLIST_PATH" <<'EOF'
+cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -135,13 +145,13 @@ cat > "$PLIST_PATH" <<'EOF'
   <key>CFBundleGetInfoString</key>
   <string>Menu bar app to control opencode-bot bridge service.</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>$APP_VERSION</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.0</string>
+  <string>$APP_VERSION</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>
-  <true/>
+  <false/>
 </dict>
 </plist>
 EOF

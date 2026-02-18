@@ -23,25 +23,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go-bridge/go.mod
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Validate code
         run: |
-          npm run typecheck
-          npm run build
-          npm test
+          cd go-bridge
+          go test ./...
+          go build ./cmd/bridge
 
       - name: Prepare embedded bridge payload
         run: bash ./macos/opencode-bot/scripts/prepare-embedded-server.sh
@@ -49,10 +40,14 @@ jobs:
       - name: Build macOS tray app bundle
         run: bash ./macos/opencode-bot/scripts/build-app.sh
 
-      - name: Resolve version from package.json
+      - name: Resolve version from VERSION file
         id: version
         run: |
-          VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          if [ -z "$VERSION" ]; then
+            echo "VERSION file is empty"
+            exit 1
+          fi
           TAG="v${VERSION}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
@@ -72,7 +67,7 @@ jobs:
       - name: Package release artifacts
         run: |
           mkdir -p release-artifacts
-          tar -czf release-artifacts/node-dist-${{ steps.version.outputs.version }}.tar.gz dist package.json package-lock.json README.md
+          tar -czf release-artifacts/bridge-${{ steps.version.outputs.version }}-darwin-amd64.tar.gz -C go-bridge bridge
           ditto -c -k --sequesterRsrc --keepParent macos/opencode-bot/dist/opencode-bot.app release-artifacts/opencode-bot-${{ steps.version.outputs.version }}.app.zip
 
           mkdir -p dmg-staging

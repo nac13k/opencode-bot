@@ -4,153 +4,73 @@ Operational guidance for coding agents in this repository.
 
 ## Project Snapshot
 
-- Stack: Node.js + TypeScript + ESM.
-- Telegram runtime: `grammy`.
-- Config: `.env` loaded via `dotenv`.
-- Persistence: JSON files in `DATA_DIR` (default `./data`).
-- OpenCode integration: HTTP server (`OPENCODE_SERVER_URL`).
-- Global plugin template: `plugin-global/telegram-relay`.
+- Runtime: Go (`go-bridge`) + Swift tray app (`macos/opencode-bot`).
+- Persistence: SQLite (`bridge.db`) under `DATA_DIR`.
+- Telegram runtime: polling or webhook from Go bridge.
+- OpenCode integration: HTTP API + optional SSE relay.
+- Local control API: Unix socket by default (`/tmp/opencode-bot.sock`).
 
-Read `IMPLEMENTATION_PLAN.md` before major architectural changes.
+Primary architecture/spec document: `GO_MIGRATION_PLAN.md`.
 
-## Rule Sources Checked
+## Install / Build / Test
 
-- `.cursor/rules/`: not present.
-- `.cursorrules`: not present.
-- `.github/copilot-instructions.md`: not present.
+- Go tests: `cd go-bridge && go test ./...`
+- Build bridge binary: `cd go-bridge && go build ./cmd/bridge`
+- Run bridge: `cd go-bridge && go run ./cmd/bridge serve`
+- Migrate DB: `cd go-bridge && go run ./cmd/bridge --migrate`
+- Import legacy JSON data: `cd go-bridge && go run ./cmd/bridge import-json`
+- Build macOS app bundle: `bash ./scripts/build-tray-bridge.sh`
 
-If these files appear later, treat them as high-priority constraints and update this document.
+## Runtime Commands (Go CLI)
 
-## Install / Build / Lint / Test
-
-Use `npm` in the repo root.
-
-- Install deps: `npm install`
-- Dev mode: `npm run dev`
-- Setup wizard: `npm run setup`
-- Typecheck: `npm run typecheck`
-- Lint (currently same as typecheck): `npm run lint`
-- Build: `npm run build`
-- Tests: `npm test`
-
-## Running a Single Test (Important)
-
-Current `test` script uses Node's built-in runner. Use these directly:
-
-- Single file: `node --test path/to/file.test.ts`
-- By test name: `node --test --test-name-pattern "your test name"`
-
-If the test framework changes (Vitest/Jest), update this section immediately.
-
-## Runtime Commands (Operational)
-
-- Start bot in dev: `npm run dev`
-- Run installer: `npm run setup`
-- Production start (after build): `npm run build && npm start`
+- `bridge serve`
+- `bridge --migrate`
+- `bridge import-json`
+- `bridge resolve --usernames @a,@b`
+- `bridge bootstrap --env-file .env`
 
 ## Environment Variables
 
 Required:
 
 - `BOT_TOKEN`
-- `ADMIN_USER_IDS` (comma-separated numeric IDs)
+- `ADMIN_USER_IDS`
 
-Optional:
+Important optional:
 
-- `BOT_TRANSPORT` (`polling` default, `webhook` accepted but not implemented in runtime)
-- `DATA_DIR` (`./data` default)
-- `OPENCODE_SERVER_URL` (`http://127.0.0.1:4096` default)
-- `OPENCODE_SERVER_USERNAME` (`opencode` default)
-- `OPENCODE_SERVER_PASSWORD` (optional)
-- `DEFAULT_SESSION_ID` (optional)
-- `OPENCODE_TIMEOUT_MS` (`120000` default)
+- `ALLOWED_USER_IDS`
+- `BOT_TRANSPORT` (`polling` or `webhook`)
+- `WEBHOOK_URL`, `WEBHOOK_LISTEN_ADDR`
+- `BOT_POLLING_INTERVAL_SECONDS`
+- `DATA_DIR`
+- `OPENCODE_SERVER_URL`, `OPENCODE_SERVER_USERNAME`, `OPENCODE_SERVER_PASSWORD`
+- `OPENCODE_BINARY`, `OPENCODE_CLI_WORKDIR`
+- `DEFAULT_SESSION_ID`
+- `OPENCODE_TIMEOUT_MS`
+- `RELAY_MODE`, `RELAY_FALLBACK`, `RELAY_FALLBACK_DELAY_MS`, `RELAY_SSE_ENABLED`
+- `SESSIONS_LIST_LIMIT`, `SESSIONS_SOURCE`, `SESSIONS_SHOW_ID_LIST`
+- `CONTROL_WEB_SERVER`, `CONTROL_SOCKET_PATH`, `HEALTH_PORT`
 
 ## Directory Guide
 
-- `src/bot`: Telegram bot setup, middleware, commands.
-- `src/auth`: authorization service.
-- `src/store`: JSON storage and schema guards.
-- `src/opencode`: OpenCode HTTP client and session/queue logic.
-- `src/resolver`: username best-effort resolver.
-- `src/relay`: direct Telegram sending utility.
-- `setup`: interactive installer + preflight + file writers.
-- `plugin-global/telegram-relay`: global OpenCode plugin source template.
+- `go-bridge/cmd/bridge`: CLI entrypoint.
+- `go-bridge/internal/service`: bridge/control/relay use cases.
+- `go-bridge/internal/opencode`: OpenCode API + CLI session listing client.
+- `go-bridge/internal/storage`: SQLite migrations and repositories.
+- `go-bridge/internal/app`: health/control API server.
+- `go-bridge/internal/telegram`: Telegram transport and resolver.
+- `macos/opencode-bot`: Swift tray app.
 
 ## Core Behavior Constraints
 
-- Auth source of truth is `telegramUserId` only.
-- Username resolution is convenience-only; never use username for auth.
-- Admin-only commands: `/allow`, `/deny`, `/list`, `/status`, `/resolve`.
-- JSON writes must remain atomic and recoverable.
-- Never log tokens/secrets.
-
-## Code Style Rules
-
-### Language & Types
-
-- Write new runtime code in TypeScript.
-- Keep `strict` compatibility.
-- Prefer type inference, but define types at module boundaries.
-- Avoid `any`; if unavoidable, narrow quickly with guards.
-
-### Imports
-
-- Order: Node built-ins, third-party packages, internal modules.
-- Use `import type` for type-only symbols.
-- Prefer explicit imports; avoid broad wildcard exports.
-
-### Naming
-
-- `camelCase` for variables/functions.
-- `PascalCase` for classes/types.
-- `UPPER_SNAKE_CASE` for env constants.
-- Use descriptive names (`getOrCreateSession`, `isAllowed`).
-
-### Functions and Files
-
-- Keep functions small and single-purpose.
-- Keep files focused by domain concern.
-- Split files if they start mixing unrelated responsibilities.
-
-### Formatting
-
-- Preserve existing formatting in edited files.
-- Do not create formatting-only churn.
-- If formatter is introduced later, follow formatter output as source of truth.
-
-### Error Handling
-
-- Fail fast for invalid startup configuration.
-- Do not swallow errors silently.
-- Return safe user-facing error messages in Telegram responses.
-- Include technical detail in internal errors, excluding secrets.
-
-### Data Safety
-
-- Validate parsed JSON before use.
-- Keep backup/recovery behavior in storage layer.
-- Avoid breaking persisted schema without migration notes.
-
-## Plugin-Specific Notes
-
-- Plugin target install path is global: `~/.config/opencode/plugin/telegram-relay/`.
-- Installer writes `config.json` for plugin runtime (`dataDir`, `botToken`).
-- Event relay uses `message.updated` cache + `session.idle` dispatch flow.
-- Do not hardcode machine-specific paths in plugin logic.
+- Authorization uses numeric Telegram user IDs only.
+- Admin-only commands remain gated (`/allow`, `/deny`, `/list`).
+- Avoid logging secrets.
+- Unix socket control mode is default; TCP mode is optional.
 
 ## Agent Workflow Expectations
 
-1. Read relevant files before editing (`src/...` + `IMPLEMENTATION_PLAN.md`).
-2. Make minimal targeted changes.
-3. Run `npm run typecheck` after meaningful edits.
-4. Run `npm run build` for integration checks.
-5. Run tests if you add tests or modify test-covered behavior.
-6. Update `README.md` or this file when commands/flows change.
-
-## Security Checklist for Changes
-
-- No secret values committed.
-- Auth path still keyed by numeric Telegram IDs.
-- Admin-only commands still gated.
-- Logs do not include bot token or sensitive payloads.
-- External command execution remains bounded by timeout.
+1. Read relevant files before edits.
+2. Make minimal, focused changes.
+3. Run `go test ./...` in `go-bridge` after meaningful Go changes.
+4. Update docs when commands/configuration change.

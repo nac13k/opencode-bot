@@ -1,5 +1,4 @@
 node_modules/
-dist/
 .env
 .env.*
 !.env.example
@@ -10,8 +9,7 @@ data/
 macos/opencode-bot/.build/
 macos/opencode-bot/dist/
 macos/opencode-bot/embedded-server/
-macos/opencode-bot/embedded-node/
 release-artifacts/
 dmg-staging/
 .DS_Store
-IMPLEMENTATION_PLAN.md
+go-bridge/bridge
