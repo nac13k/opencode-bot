@@ -1,5 +1,4 @@
 node_modules/
-dist/
 .env
 .env.*
 !.env.example
@@ -7,10 +6,10 @@ data/
 *.log
 .agents/
 .claude/
-macos/TrayBridgeApp/.build/
-macos/TrayBridgeApp/dist/
-macos/TrayBridgeApp/embedded-server/
-macos/TrayBridgeApp/embedded-node/
+macos/opencode-bot/.build/
+macos/opencode-bot/dist/
+macos/opencode-bot/embedded-server/
 release-artifacts/
+dmg-staging/
 .DS_Store
-IMPLEMENTATION_PLAN.md
+go-bridge/bridge

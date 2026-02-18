@@ -14,7 +14,7 @@
   <text x="190" y="104" font-family="SF Pro Display, Arial" font-size="24" fill="#1f2937">github.com/nac13k/opencode-bot/releases</text>
   <text x="120" y="190" font-family="SF Pro Display, Arial" font-size="40" font-weight="700" fill="#111827">Release v0.1.0</text>
   <rect x="120" y="235" width="960" height="88" rx="12" fill="#ffffff" stroke="#d1d9e0"/>
-  <text x="150" y="289" font-family="SF Mono, Menlo, monospace" font-size="30" fill="#111827">TrayBridgeApp-0.1.0.app.zip</text>
+  <text x="150" y="289" font-family="SF Mono, Menlo, monospace" font-size="30" fill="#111827">opencode-bot-0.1.0.app.zip</text>
   <rect x="870" y="250" width="185" height="58" rx="10" fill="#0969da"/>
   <text x="905" y="288" font-family="SF Pro Display, Arial" font-size="26" fill="#ffffff">Download</text>
   <text x="120" y="390" font-family="SF Pro Display, Arial" font-size="32" fill="#1f2937">1) Open Releases page</text>
